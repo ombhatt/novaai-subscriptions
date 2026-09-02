@@ -1,0 +1,32 @@
+import { expect, test } from "@playwright/test";
+import {
+  checkoutSuccessUrl,
+  mockCheckout,
+  mockPortal,
+  mockSubscriptionAsPlus,
+  portalReturnUrl,
+} from "./helpers/stripe";
+
+test("upgrade to Plus posts checkout then follows the mock success URL", async ({
+  page,
+}) => {
+  await mockCheckout(page, {
+    expectedTier: "plus",
+    redirectUrl: checkoutSuccessUrl(),
+  });
+
+  await page.goto("/pricing");
+  await page.getByRole("button", { name: "Upgrade to Plus" }).click();
+  await expect(page).toHaveURL(/\/dashboard\?checkout=success/);
+});
+
+test("manage billing posts portal then follows the mock return URL", async ({
+  page,
+}) => {
+  await mockSubscriptionAsPlus(page);
+  await mockPortal(page, portalReturnUrl());
+
+  await page.goto("/dashboard");
+  await page.getByRole("button", { name: "Manage billing" }).click();
+  await expect(page).toHaveURL(/\/dashboard\?portal=return/);
+});

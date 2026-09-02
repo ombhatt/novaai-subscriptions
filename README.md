@@ -109,11 +109,35 @@ supabase/
 
 ## Tests
 
+Unit tests cover tier/entitlement logic, Stripe webhook handling, API routes, middleware, and key UI components (Vitest + Testing Library):
+
 ```bash
 npm test
 ```
 
-Unit tests cover tier/entitlement logic, Stripe webhook handling, API routes, middleware, and key UI components (Vitest + Testing Library).
+### End-to-end tests (Playwright)
+
+```bash
+npx playwright install chromium
+npm run test:e2e
+```
+
+Requires the same `.env.local` as local development (Supabase URL and keys). Email confirmations must be **disabled** on the project used for E2E — local [`supabase/config.toml`](supabase/config.toml) already sets `enable_confirmations = false`.
+
+The default suite hits real Supabase Auth and mocks Stripe at `/api/checkout` and `/api/portal` (no hosted Checkout). Interactive mode:
+
+```bash
+npm run test:e2e:ui
+```
+
+To run the optional real Stripe Checkout spec (test card `4242…`), keep Stripe test keys in `.env.local`, forward webhooks, then:
+
+```bash
+stripe listen --forward-to localhost:43123/api/webhooks/stripe
+npm run test:e2e:stripe
+```
+
+Use a dedicated Supabase project for E2E, not production. Each run creates unique users; there is no automatic cleanup.
 
 ## Local Stripe webhooks
 
