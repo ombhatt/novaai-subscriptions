@@ -12,6 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import type { Subscription } from "@/lib/entitlements";
@@ -134,11 +135,14 @@ export function DashboardClient() {
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
             Current plan
-            <Badge variant={data.status === "active" ? "default" : "destructive"}>
+            <Badge
+              data-testid="dashboard-status"
+              variant={data.status === "active" ? "default" : "destructive"}
+            >
               {data.status}
             </Badge>
           </CardTitle>
-          <CardDescription>
+          <CardDescription data-testid="dashboard-plan">
             You are on the {tierDetails.label} plan (${tierDetails.priceMonthly}/mo)
           </CardDescription>
         </CardHeader>
@@ -146,7 +150,7 @@ export function DashboardClient() {
           <div>
             <div className="mb-2 flex justify-between text-sm">
               <span>Monthly usage</span>
-              <span className="font-medium">
+              <span className="font-medium" data-testid="dashboard-usage">
                 {data.usage.toLocaleString()} / {data.limit.toLocaleString()}
               </span>
             </div>
@@ -192,19 +196,28 @@ export function DashboardClient() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleChatSubmit} className="space-y-4">
-            <Input
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder="Summarize our Q3 product roadmap…"
-              disabled={chatLoading}
-            />
+            <div className="space-y-2">
+              <Label htmlFor="chat-prompt">Prompt</Label>
+              <Input
+                id="chat-prompt"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder="Summarize our Q3 product roadmap…"
+                disabled={chatLoading}
+              />
+            </div>
             <Button type="submit" disabled={chatLoading || !prompt.trim()}>
               {chatLoading ? "Processing…" : "Send request"}
             </Button>
           </form>
 
           {chatReply && (
-            <div className="mt-4 rounded-lg border bg-muted/50 p-4 text-sm">{chatReply}</div>
+            <div
+              data-testid="chat-reply"
+              className="mt-4 rounded-lg border bg-muted/50 p-4 text-sm"
+            >
+              {chatReply}
+            </div>
           )}
         </CardContent>
       </Card>
