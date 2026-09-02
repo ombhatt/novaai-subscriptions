@@ -115,6 +115,16 @@ Unit tests cover tier/entitlement logic, Stripe webhook handling, API routes, mi
 npm test
 ```
 
+### Database tests (trigger, RLS, increment_usage)
+
+These Vitest cases talk to the configured Supabase project (same keys as `.env.local`). They are skipped when those keys are missing.
+
+Apply migrations first (`supabase db push`, or run the SQL in the dashboard), including `supabase/migrations/20260902120000_restrict_increment_usage.sql` so `increment_usage` is only executable by the service role.
+
+```bash
+npm run test:db
+```
+
 ### End-to-end tests (Playwright)
 
 ```bash

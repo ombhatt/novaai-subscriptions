@@ -22,7 +22,7 @@ export default defineConfig({
     },
     {
       name: "guest",
-      testMatch: /(?:^|\/)(public|auth)\.spec\.ts$/,
+      testMatch: /(?:^|\/)(public|auth|db)\.spec\.ts$/,
       use: { ...devices["Desktop Chrome"] },
     },
     {
