@@ -1,0 +1,222 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type Stripe from "stripe";
+import { createSupabaseMock } from "@/test/mocks/supabase";
+
+const { createAdminClientMock, getStripeMock } = vi.hoisted(() => ({
+  createAdminClientMock: vi.fn(),
+  getStripeMock: vi.fn(),
+}));
+
+vi.mock("@/lib/supabase/admin", () => ({
+  createAdminClient: createAdminClientMock,
+}));
+
+vi.mock("@/lib/stripe", () => ({
+  getStripe: getStripeMock,
+}));
+
+import { handleStripeWebhookEvent } from "@/lib/stripe-webhook-handler";
+
+function makeEvent(
+  type: string,
+  object: Record<string, unknown>,
+  id = `evt_${type}`,
+): Stripe.Event {
+  return {
+    id,
+    type,
+    data: { object },
+  } as unknown as Stripe.Event;
+}
+
+function makeStripeSubscription(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "sub_123",
+    status: "active",
+    cancel_at_period_end: false,
+    customer: "cus_123",
+    items: {
+      data: [
+        {
+          id: "si_1",
+          price: { id: "price_plus_test" },
+          current_period_start: 1_700_000_000,
+          current_period_end: 1_702_592_000,
+        },
+      ],
+    },
+    ...overrides,
+  };
+}
+
+describe("handleStripeWebhookEvent", () => {
+  beforeEach(() => {
+    vi.stubEnv("STRIPE_PRICE_PLUS", "price_plus_test");
+    vi.stubEnv("STRIPE_PRICE_PRO", "price_pro_test");
+  });
+
+  it("skips duplicate webhook events (idempotent)", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        stripe_webhook_events: {
+          data: null,
+          error: { message: "duplicate", code: "23505" },
+        },
+      },
+    });
+    createAdminClientMock.mockReturnValue(supabase);
+
+    await expect(
+      handleStripeWebhookEvent(
+        makeEvent("invoice.paid", { customer: "cus_123" }, "evt_dup"),
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(supabase.from).toHaveBeenCalledWith("stripe_webhook_events");
+    expect(supabase.from).not.toHaveBeenCalledWith("subscriptions");
+  });
+
+  it("upserts subscription on checkout.session.completed", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        stripe_webhook_events: { data: null, error: null },
+        subscriptions: { data: null, error: null },
+      },
+    });
+    createAdminClientMock.mockReturnValue(supabase);
+
+    const retrieve = vi.fn().mockResolvedValue(makeStripeSubscription());
+    getStripeMock.mockReturnValue({
+      subscriptions: { retrieve },
+    });
+
+    await handleStripeWebhookEvent(
+      makeEvent("checkout.session.completed", {
+        metadata: { user_id: "user-1" },
+        customer: "cus_123",
+        subscription: "sub_123",
+      }),
+    );
+
+    expect(retrieve).toHaveBeenCalledWith("sub_123");
+    expect(supabase.from).toHaveBeenCalledWith("subscriptions");
+  });
+
+  it("throws when checkout session is missing required fields", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        stripe_webhook_events: { data: null, error: null },
+      },
+    });
+    createAdminClientMock.mockReturnValue(supabase);
+
+    await expect(
+      handleStripeWebhookEvent(
+        makeEvent("checkout.session.completed", {
+          metadata: {},
+          customer: null,
+          subscription: null,
+        }),
+      ),
+    ).rejects.toThrow(/missing user_id, customer, or subscription/);
+  });
+
+  it("downgrades to free on customer.subscription.deleted", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        stripe_webhook_events: { data: null, error: null },
+        subscriptions: { data: { user_id: "user-1" }, error: null },
+      },
+    });
+    createAdminClientMock.mockReturnValue(supabase);
+
+    await handleStripeWebhookEvent(
+      makeEvent("customer.subscription.deleted", makeStripeSubscription()),
+    );
+
+    expect(supabase.from).toHaveBeenCalledWith("subscriptions");
+  });
+
+  it("marks subscription past_due on invoice.payment_failed", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        stripe_webhook_events: { data: null, error: null },
+        subscriptions: { data: { user_id: "user-1" }, error: null },
+      },
+    });
+    createAdminClientMock.mockReturnValue(supabase);
+
+    await handleStripeWebhookEvent(
+      makeEvent("invoice.payment_failed", { customer: "cus_123" }),
+    );
+
+    expect(supabase.from).toHaveBeenCalledWith("subscriptions");
+  });
+
+  it("marks subscription active on invoice.paid", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        stripe_webhook_events: { data: null, error: null },
+        subscriptions: { data: { user_id: "user-1" }, error: null },
+      },
+    });
+    createAdminClientMock.mockReturnValue(supabase);
+
+    await handleStripeWebhookEvent(
+      makeEvent("invoice.paid", { customer: "cus_123" }),
+    );
+
+    expect(supabase.from).toHaveBeenCalledWith("subscriptions");
+  });
+
+  it("upserts on subscription.updated when still active", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        stripe_webhook_events: { data: null, error: null },
+        subscriptions: { data: { user_id: "user-1" }, error: null },
+      },
+    });
+    createAdminClientMock.mockReturnValue(supabase);
+
+    await handleStripeWebhookEvent(
+      makeEvent(
+        "customer.subscription.updated",
+        makeStripeSubscription({ status: "active" }),
+      ),
+    );
+
+    expect(supabase.from).toHaveBeenCalledWith("subscriptions");
+  });
+
+  it("downgrades when subscription.updated status is canceled", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        stripe_webhook_events: { data: null, error: null },
+        subscriptions: { data: { user_id: "user-1" }, error: null },
+      },
+    });
+    createAdminClientMock.mockReturnValue(supabase);
+
+    await handleStripeWebhookEvent(
+      makeEvent(
+        "customer.subscription.updated",
+        makeStripeSubscription({ status: "canceled" }),
+      ),
+    );
+
+    expect(supabase.from).toHaveBeenCalledWith("subscriptions");
+  });
+
+  it("ignores unknown event types after recording", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        stripe_webhook_events: { data: null, error: null },
+      },
+    });
+    createAdminClientMock.mockReturnValue(supabase);
+
+    await expect(
+      handleStripeWebhookEvent(makeEvent("ping", {})),
+    ).resolves.toBeUndefined();
+  });
+});

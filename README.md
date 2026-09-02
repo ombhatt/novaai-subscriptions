@@ -107,6 +107,14 @@ supabase/
 | `/api/portal` | POST | Open Stripe billing portal |
 | `/api/chat` | POST | Mock AI request with entitlement enforcement |
 
+## Tests
+
+```bash
+npm test
+```
+
+Unit tests cover tier/entitlement logic, Stripe webhook handling, API routes, middleware, and key UI components (Vitest + Testing Library).
+
 ## Local Stripe webhooks
 
 ```bash
