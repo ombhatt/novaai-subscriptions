@@ -128,10 +128,52 @@ describe("POST /api/chat", () => {
     expect(json.model).toBe("standard");
     expect(json.usage).toBe(6);
     expect(json.reply).toContain("Summarize this");
+    expect(admin.rpc).toHaveBeenCalledWith("consume_rate_limit", {
+      p_user_id: "user-1",
+      p_limit: 100,
+    });
     expect(admin.rpc).toHaveBeenCalledWith("increment_usage", {
       p_user_id: "user-1",
       p_period_start: expect.stringMatching(/^\d{4}-\d{2}-01$/),
     });
+  });
+
+  it("returns 429 when the per-minute rate limit is exhausted", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        subscriptions: {
+          data: makeSubscription({ tier: "free" }),
+          error: null,
+        },
+        usage_counters: { data: { request_count: 0 }, error: null },
+      },
+    });
+    createClientMock.mockResolvedValue(supabase);
+
+    const admin = createSupabaseMock({
+      rpcResults: {
+        consume_rate_limit: { data: null, error: null },
+      },
+    });
+    createAdminClientMock.mockReturnValue(admin);
+
+    const response = await POST(
+      new Request("http://localhost/api/chat", {
+        method: "POST",
+        body: JSON.stringify({ prompt: "hello" }),
+      }),
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toMatch(/^\d+$/);
+    const json = await response.json();
+    expect(json.code).toBe("rate_limited");
+    expect(json.error).toMatch(/requests per minute/);
+    expect(json.limit).toBe(10);
+    expect(admin.rpc).not.toHaveBeenCalledWith(
+      "increment_usage",
+      expect.anything(),
+    );
   });
 
   it("increments usage against the Stripe billing period when present", async () => {

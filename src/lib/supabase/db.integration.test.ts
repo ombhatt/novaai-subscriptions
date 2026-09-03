@@ -134,6 +134,55 @@ describe.skipIf(!enabled)("increment_usage", () => {
   });
 });
 
+describe.skipIf(!enabled)("consume_rate_limit", () => {
+  it("increments until the per-minute limit and then returns null", async () => {
+    const user = await makeUser();
+    const admin = adminClient();
+
+    const first = await admin.rpc("consume_rate_limit", {
+      p_user_id: user.id,
+      p_limit: 2,
+    });
+    const second = await admin.rpc("consume_rate_limit", {
+      p_user_id: user.id,
+      p_limit: 2,
+    });
+    const third = await admin.rpc("consume_rate_limit", {
+      p_user_id: user.id,
+      p_limit: 2,
+    });
+
+    expect(first.error).toBeNull();
+    expect(second.error).toBeNull();
+    expect(third.error).toBeNull();
+    expect(first.data).toBe(1);
+    expect(second.data).toBe(2);
+    expect(third.data).toBeNull();
+
+    const { data: row, error } = await admin
+      .from("rate_limit_windows")
+      .select("request_count")
+      .eq("user_id", user.id)
+      .single();
+
+    expect(error).toBeNull();
+    expect(row?.request_count).toBe(2);
+  });
+
+  it("is not executable by an authenticated user", async () => {
+    const user = await makeUser();
+    const client = await signInUser(user.email, user.password);
+
+    const { data, error } = await client.rpc("consume_rate_limit", {
+      p_user_id: user.id,
+      p_limit: 10,
+    });
+
+    expect(data).not.toBe(1);
+    expect(error).toBeTruthy();
+  });
+});
+
 describe.skipIf(!enabled)("row level security", () => {
   it("lets a user read only their own profile, subscription, and usage", async () => {
     const alice = await makeUser("Alice");
@@ -191,6 +240,25 @@ describe.skipIf(!enabled)("row level security", () => {
       .eq("user_id", user.id)
       .single();
     expect(after?.tier).toBe("free");
+  });
+
+  it("prevents a user from inserting rate limit windows", async () => {
+    const user = await makeUser();
+    const client = await signInUser(user.email, user.password);
+
+    const { error } = await client.from("rate_limit_windows").insert({
+      user_id: user.id,
+      window_start: new Date().toISOString(),
+      request_count: 999,
+    });
+
+    expect(error).toBeTruthy();
+
+    const { data } = await adminClient()
+      .from("rate_limit_windows")
+      .select("user_id")
+      .eq("user_id", user.id);
+    expect(data).toEqual([]);
   });
 
   it("prevents a user from inserting usage counters", async () => {
