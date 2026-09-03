@@ -119,7 +119,7 @@ npm test
 
 These Vitest cases talk to the configured Supabase project (same keys as `.env.local`). They are skipped when those keys are missing.
 
-Apply migrations first (`supabase db push`, or run the SQL in the dashboard), including `supabase/migrations/20260902120000_restrict_increment_usage.sql` so `increment_usage` is only executable by the service role.
+Apply migrations first (`supabase db push`, or run the SQL in the dashboard), including `supabase/migrations/20260902120000_restrict_increment_usage.sql` and `supabase/migrations/20260903140000_increment_usage_period_start.sql` so `increment_usage(user_id, period_start)` is only executable by the service role.
 
 ```bash
 npm run test:db

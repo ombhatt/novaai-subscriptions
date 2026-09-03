@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type Stripe from "stripe";
-import { getSubscriptionPeriod } from "@/lib/stripe-subscription";
+import {
+  getInvoiceSubscriptionId,
+  getSubscriptionPeriod,
+} from "@/lib/stripe-subscription";
 
 function makeStripeSubscription(
   items: Array<{ current_period_start?: number; current_period_end?: number }> = [],
@@ -33,5 +36,23 @@ describe("getSubscriptionPeriod", () => {
       currentPeriodStart: null,
       currentPeriodEnd: null,
     });
+  });
+});
+
+describe("getInvoiceSubscriptionId", () => {
+  it("reads parent.subscription_details.subscription", () => {
+    const invoice = {
+      parent: { subscription_details: { subscription: "sub_abc" } },
+    } as Stripe.Invoice;
+    expect(getInvoiceSubscriptionId(invoice)).toBe("sub_abc");
+  });
+
+  it("reads a legacy subscription field", () => {
+    const invoice = { subscription: "sub_legacy" } as unknown as Stripe.Invoice;
+    expect(getInvoiceSubscriptionId(invoice)).toBe("sub_legacy");
+  });
+
+  it("returns null when neither field is present", () => {
+    expect(getInvoiceSubscriptionId({} as Stripe.Invoice)).toBeNull();
   });
 });

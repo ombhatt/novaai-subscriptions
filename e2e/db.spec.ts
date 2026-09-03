@@ -68,7 +68,10 @@ test.describe("db + rls after signup", () => {
     expect(after?.tier).toBe("free");
     await expect(page.getByTestId("dashboard-plan")).toContainText("Free");
 
-    const rpc = await client.rpc("increment_usage", { p_user_id: userId });
+    const rpc = await client.rpc("increment_usage", {
+      p_user_id: userId,
+      p_period_start: new Date().toISOString().slice(0, 10),
+    });
     expect(rpc.error).toBeTruthy();
   });
 });

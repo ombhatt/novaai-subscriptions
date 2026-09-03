@@ -153,7 +153,7 @@ describe("handleStripeWebhookEvent", () => {
     expect(supabase.from).toHaveBeenCalledWith("subscriptions");
   });
 
-  it("marks subscription active on invoice.paid", async () => {
+  it("marks subscription active on invoice.paid when there is no subscription id", async () => {
     const supabase = createSupabaseMock({
       fromResults: {
         stripe_webhook_events: { data: null, error: null },
@@ -166,6 +166,32 @@ describe("handleStripeWebhookEvent", () => {
       makeEvent("invoice.paid", { customer: "cus_123" }),
     );
 
+    expect(supabase.from).toHaveBeenCalledWith("subscriptions");
+    expect(getStripeMock).not.toHaveBeenCalled();
+  });
+
+  it("refreshes billing period on invoice.paid when a subscription is present", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        stripe_webhook_events: { data: null, error: null },
+        subscriptions: { data: { user_id: "user-1" }, error: null },
+      },
+    });
+    createAdminClientMock.mockReturnValue(supabase);
+
+    const retrieve = vi.fn().mockResolvedValue(makeStripeSubscription());
+    getStripeMock.mockReturnValue({
+      subscriptions: { retrieve },
+    });
+
+    await handleStripeWebhookEvent(
+      makeEvent("invoice.paid", {
+        customer: "cus_123",
+        parent: { subscription_details: { subscription: "sub_123" } },
+      }),
+    );
+
+    expect(retrieve).toHaveBeenCalledWith("sub_123");
     expect(supabase.from).toHaveBeenCalledWith("subscriptions");
   });
 

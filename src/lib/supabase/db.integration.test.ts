@@ -1,7 +1,7 @@
 /** @vitest-environment node */
 
 import { afterAll, describe, expect, it } from "vitest";
-import { getCurrentPeriodStart } from "@/lib/entitlements";
+import { usagePeriodStart } from "@/lib/entitlements";
 import {
   adminClient,
   anonClient,
@@ -58,16 +58,22 @@ describe.skipIf(!enabled)("signup trigger", () => {
 });
 
 describe.skipIf(!enabled)("increment_usage", () => {
-  it("upserts the UTC month counter and returns a monotonic count", async () => {
+  it("upserts the supplied period counter and returns a monotonic count", async () => {
     const user = await makeUser();
     const admin = adminClient();
-    const period = getCurrentPeriodStart();
+    const period = usagePeriodStart(null);
 
-    const first = await admin.rpc("increment_usage", { p_user_id: user.id });
+    const first = await admin.rpc("increment_usage", {
+      p_user_id: user.id,
+      p_period_start: period,
+    });
     expect(first.error).toBeNull();
     expect(first.data).toBe(1);
 
-    const second = await admin.rpc("increment_usage", { p_user_id: user.id });
+    const second = await admin.rpc("increment_usage", {
+      p_user_id: user.id,
+      p_period_start: period,
+    });
     expect(second.error).toBeNull();
     expect(second.data).toBe(2);
 
@@ -82,12 +88,45 @@ describe.skipIf(!enabled)("increment_usage", () => {
     expect(String(row?.period_start).slice(0, 10)).toBe(period);
   });
 
+  it("starts a new counter when the billing period changes", async () => {
+    const user = await makeUser();
+    const admin = adminClient();
+
+    const first = await admin.rpc("increment_usage", {
+      p_user_id: user.id,
+      p_period_start: "2026-09-15",
+    });
+    const second = await admin.rpc("increment_usage", {
+      p_user_id: user.id,
+      p_period_start: "2026-10-15",
+    });
+
+    expect(first.error).toBeNull();
+    expect(second.error).toBeNull();
+    expect(first.data).toBe(1);
+    expect(second.data).toBe(1);
+
+    const { data: rows, error } = await admin
+      .from("usage_counters")
+      .select("period_start, request_count")
+      .eq("user_id", user.id)
+      .order("period_start");
+
+    expect(error).toBeNull();
+    expect(rows).toHaveLength(2);
+    expect(rows?.map((row) => String(row.period_start).slice(0, 10))).toEqual([
+      "2026-09-15",
+      "2026-10-15",
+    ]);
+  });
+
   it("is not executable by an authenticated user", async () => {
     const user = await makeUser();
     const client = await signInUser(user.email, user.password);
 
     const { data, error } = await client.rpc("increment_usage", {
       p_user_id: user.id,
+      p_period_start: usagePeriodStart(null),
     });
 
     expect(data).not.toBe(1);
@@ -100,8 +139,9 @@ describe.skipIf(!enabled)("row level security", () => {
     const alice = await makeUser("Alice");
     const bob = await makeUser("Bob");
     const admin = adminClient();
-    await admin.rpc("increment_usage", { p_user_id: alice.id });
-    await admin.rpc("increment_usage", { p_user_id: bob.id });
+    const period = usagePeriodStart(null);
+    await admin.rpc("increment_usage", { p_user_id: alice.id, p_period_start: period });
+    await admin.rpc("increment_usage", { p_user_id: bob.id, p_period_start: period });
 
     const aliceClient = await signInUser(alice.email, alice.password);
 
@@ -159,7 +199,7 @@ describe.skipIf(!enabled)("row level security", () => {
 
     const { error } = await client.from("usage_counters").insert({
       user_id: user.id,
-      period_start: getCurrentPeriodStart(),
+      period_start: usagePeriodStart(null),
       request_count: 999,
     });
 

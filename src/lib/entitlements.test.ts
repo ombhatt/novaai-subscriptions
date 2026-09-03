@@ -2,6 +2,7 @@ import { describe, expect, it, vi, afterEach } from "vitest";
 import {
   evaluateEntitlement,
   getCurrentPeriodStart,
+  usagePeriodStart,
   type Subscription,
 } from "@/lib/entitlements";
 import { TIER_LIMITS } from "@/lib/tiers";
@@ -22,6 +23,34 @@ describe("getCurrentPeriodStart", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-02T00:00:00.000Z"));
     expect(getCurrentPeriodStart()).toBe("2026-03-01");
+  });
+});
+
+describe("usagePeriodStart", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("uses the UTC date of Stripe current_period_start when present", () => {
+    const sub = makeSubscription({
+      tier: "plus",
+      current_period_start: "2026-09-15T12:34:56.000Z",
+    }) as Subscription;
+    expect(usagePeriodStart(sub)).toBe("2026-09-15");
+  });
+
+  it("falls back to the calendar month when the Stripe period is missing", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-15T12:00:00.000Z"));
+    expect(usagePeriodStart(null)).toBe("2026-09-01");
+    expect(usagePeriodStart(makeSubscription() as Subscription)).toBe("2026-09-01");
+  });
+
+  it("falls back when current_period_start is not a date prefix", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-10T00:00:00.000Z"));
+    const sub = makeSubscription({ current_period_start: "not-a-date" }) as Subscription;
+    expect(usagePeriodStart(sub)).toBe("2026-04-01");
   });
 });
 

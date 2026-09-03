@@ -197,6 +197,22 @@ async function handleEvent(event: Stripe.Event) {
       const userId = await findUserId(customerId);
       if (!userId) break;
 
+      const parent = invoice.parent as
+        | { subscription_details?: { subscription?: string | { id?: string } } }
+        | null
+        | undefined;
+      const parentSub = parent?.subscription_details?.subscription;
+      const legacySub = (invoice as { subscription?: string | { id?: string } }).subscription;
+      const rawSub = parentSub ?? legacySub;
+      const subscriptionId =
+        typeof rawSub === "string" ? rawSub : rawSub?.id ?? null;
+
+      if (subscriptionId) {
+        const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+        await upsertSubscription(userId, customerId, subscription);
+        break;
+      }
+
       const { error } = await supabase
         .from("subscriptions")
         .update({ status: "active", updated_at: new Date().toISOString() })

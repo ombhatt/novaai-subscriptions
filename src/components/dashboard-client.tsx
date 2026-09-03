@@ -176,7 +176,8 @@ export function DashboardClient() {
             </div>
             <Progress value={usagePercent} />
             <p className="mt-2 text-sm text-muted-foreground">
-              {data.remaining.toLocaleString()} requests remaining this month
+              {data.remaining.toLocaleString()} requests remaining this{" "}
+              {data.subscription?.current_period_start ? "billing period" : "month"}
             </p>
           </div>
 
