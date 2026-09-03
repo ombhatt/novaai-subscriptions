@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
   evaluateEntitlement,
-  getCurrentPeriodStart,
+  usagePeriodStart,
   type Subscription,
 } from "@/lib/entitlements";
 import { TIER_LIMITS } from "@/lib/tiers";
@@ -23,7 +23,7 @@ export async function GET() {
     .eq("user_id", user.id)
     .maybeSingle();
 
-  const periodStart = getCurrentPeriodStart();
+  const periodStart = usagePeriodStart(subscription as Subscription | null);
 
   const { data: usage } = await supabase
     .from("usage_counters")

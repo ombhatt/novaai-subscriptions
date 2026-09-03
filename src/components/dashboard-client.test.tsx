@@ -34,6 +34,32 @@ describe("DashboardClient", () => {
     expect(screen.getByText("active")).toBeInTheDocument();
     expect(screen.getByText(/You are on the Free plan/)).toBeInTheDocument();
     expect(screen.getByText(/12 \/ 1,000/)).toBeInTheDocument();
+    expect(screen.getByText(/requests remaining this month/)).toBeInTheDocument();
+  });
+
+  it("describes remaining usage as a billing period when Stripe period dates exist", async () => {
+    vi.spyOn(global, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          subscription: {
+            current_period_start: "2026-09-15T00:00:00.000Z",
+            current_period_end: "2026-10-15T00:00:00.000Z",
+          },
+          usage: 12,
+          limit: 50000,
+          remaining: 49988,
+          tier: "plus",
+          status: "active",
+        }),
+        { status: 200 },
+      ),
+    );
+
+    render(<DashboardClient />);
+
+    expect(
+      await screen.findByText(/requests remaining this billing period/),
+    ).toBeInTheDocument();
   });
 
   it("shows an error state when subscription fetch fails", async () => {

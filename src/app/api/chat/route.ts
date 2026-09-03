@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   evaluateEntitlement,
-  getCurrentPeriodStart,
+  usagePeriodStart,
   type Subscription,
 } from "@/lib/entitlements";
 import { TIER_LIMITS } from "@/lib/tiers";
@@ -31,7 +31,7 @@ export async function POST(request: Request) {
     .eq("user_id", user.id)
     .maybeSingle();
 
-  const periodStart = getCurrentPeriodStart();
+  const periodStart = usagePeriodStart(subscription as Subscription | null);
 
   const { data: usage } = await supabase
     .from("usage_counters")
@@ -61,6 +61,7 @@ export async function POST(request: Request) {
   const admin = createAdminClient();
   const { data: newCount, error } = await admin.rpc("increment_usage", {
     p_user_id: user.id,
+    p_period_start: periodStart,
   });
 
   if (error) {

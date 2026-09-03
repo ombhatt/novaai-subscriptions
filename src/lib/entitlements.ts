@@ -39,9 +39,20 @@ export interface EntitlementResult {
   reason?: string;
 }
 
-export function getCurrentPeriodStart(): string {
-  const now = new Date();
+export function getCurrentPeriodStart(now = new Date()): string {
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
+}
+
+/** Paid plans key usage by Stripe's billing period; Free falls back to the UTC calendar month. */
+export function usagePeriodStart(
+  subscription: Pick<Subscription, "current_period_start"> | null,
+  now = new Date(),
+): string {
+  const fromStripe = subscription?.current_period_start?.slice(0, 10);
+  if (fromStripe && /^\d{4}-\d{2}-\d{2}$/.test(fromStripe)) {
+    return fromStripe;
+  }
+  return getCurrentPeriodStart(now);
 }
 
 export function evaluateEntitlement(

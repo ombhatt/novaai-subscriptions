@@ -1,6 +1,9 @@
 import type Stripe from "stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getSubscriptionPeriod } from "@/lib/stripe-subscription";
+import {
+  getInvoiceSubscriptionId,
+  getSubscriptionPeriod,
+} from "@/lib/stripe-subscription";
 import { tierFromStripePriceId } from "@/lib/tiers";
 import type { SubscriptionStatus } from "@/lib/tiers";
 
@@ -207,6 +210,14 @@ export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<voi
 
       const userId = await findUserIdByCustomerId(customerId);
       if (!userId) break;
+
+      const subscriptionId = getInvoiceSubscriptionId(invoice);
+      if (subscriptionId) {
+        const stripe = await import("@/lib/stripe").then((m) => m.getStripe());
+        const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+        await upsertSubscriptionFromStripe(userId, customerId, subscription);
+        break;
+      }
 
       const supabase = createAdminClient();
       const { error } = await supabase

@@ -128,7 +128,44 @@ describe("POST /api/chat", () => {
     expect(json.model).toBe("standard");
     expect(json.usage).toBe(6);
     expect(json.reply).toContain("Summarize this");
-    expect(admin.rpc).toHaveBeenCalledWith("increment_usage", { p_user_id: "user-1" });
+    expect(admin.rpc).toHaveBeenCalledWith("increment_usage", {
+      p_user_id: "user-1",
+      p_period_start: expect.stringMatching(/^\d{4}-\d{2}-01$/),
+    });
+  });
+
+  it("increments usage against the Stripe billing period when present", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        subscriptions: {
+          data: makeSubscription({
+            tier: "plus",
+            current_period_start: "2026-09-15T00:00:00.000Z",
+          }),
+          error: null,
+        },
+        usage_counters: { data: { request_count: 5 }, error: null },
+      },
+    });
+    createClientMock.mockResolvedValue(supabase);
+
+    const admin = createSupabaseMock({
+      rpcResult: { data: 6, error: null },
+    });
+    createAdminClientMock.mockReturnValue(admin);
+
+    const response = await POST(
+      new Request("http://localhost/api/chat", {
+        method: "POST",
+        body: JSON.stringify({ prompt: "hello" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(admin.rpc).toHaveBeenCalledWith("increment_usage", {
+      p_user_id: "user-1",
+      p_period_start: "2026-09-15",
+    });
   });
 
   it("returns 500 when usage increment fails", async () => {
