@@ -28,6 +28,14 @@ interface DashboardData {
   status: string;
 }
 
+async function fetchDashboardData(): Promise<DashboardData> {
+  const response = await fetch("/api/subscription");
+  if (!response.ok) {
+    throw new Error("Failed to load subscription data");
+  }
+  return response.json();
+}
+
 export function DashboardClient() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -42,12 +50,7 @@ export function DashboardClient() {
     setError(null);
 
     try {
-      const response = await fetch("/api/subscription");
-      if (!response.ok) {
-        throw new Error("Failed to load subscription data");
-      }
-      const json = await response.json();
-      setData(json);
+      setData(await fetchDashboardData());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -56,7 +59,24 @@ export function DashboardClient() {
   }
 
   useEffect(() => {
-    loadDashboard();
+    let cancelled = false;
+
+    fetchDashboardData()
+      .then((json) => {
+        if (!cancelled) setData(json);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Something went wrong");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   async function handleChatSubmit(event: React.FormEvent) {

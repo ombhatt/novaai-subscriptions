@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PricingCards } from "@/components/pricing-cards";
-import { SiteHeader } from "@/components/site-header";
 import type { Tier } from "@/lib/tiers";
 
 export function PricingPageClient() {
