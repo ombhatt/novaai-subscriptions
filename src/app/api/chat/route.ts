@@ -6,6 +6,7 @@ import {
   usagePeriodStart,
   type Subscription,
 } from "@/lib/entitlements";
+import { evaluateRateLimit, secondsUntilNextUtcMinute } from "@/lib/rate-limit";
 import { TIER_LIMITS } from "@/lib/tiers";
 
 export async function POST(request: Request) {
@@ -59,6 +60,34 @@ export async function POST(request: Request) {
   }
 
   const admin = createAdminClient();
+  const rateLimit = TIER_LIMITS[entitlement.tier].rateLimitPerMinute;
+  const { data: rateCount, error: rateError } = await admin.rpc("consume_rate_limit", {
+    p_user_id: user.id,
+    p_limit: rateLimit,
+  });
+
+  if (rateError) {
+    return NextResponse.json({ error: rateError.message }, { status: 500 });
+  }
+
+  if (rateCount == null) {
+    const limited = evaluateRateLimit(entitlement.tier, rateLimit);
+    const retryAfter = secondsUntilNextUtcMinute();
+    return NextResponse.json(
+      {
+        error: limited.reason,
+        code: "rate_limited",
+        tier: entitlement.tier,
+        limit: limited.limit,
+        retryAfterSeconds: retryAfter,
+      },
+      {
+        status: 429,
+        headers: { "Retry-After": String(retryAfter) },
+      },
+    );
+  }
+
   const { data: newCount, error } = await admin.rpc("increment_usage", {
     p_user_id: user.id,
     p_period_start: periodStart,

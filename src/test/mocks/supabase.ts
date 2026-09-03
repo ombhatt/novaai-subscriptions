@@ -47,6 +47,7 @@ export function createSupabaseMock(options?: {
   user?: { id: string; email?: string } | null;
   fromResults?: Record<string, QueryResult>;
   rpcResult?: QueryResult;
+  rpcResults?: Record<string, QueryResult>;
   authError?: Error | null;
   exchangeError?: Error | null;
 }) {
@@ -61,7 +62,15 @@ export function createSupabaseMock(options?: {
     return qb.builder;
   });
 
-  const rpc = vi.fn().mockResolvedValue(options?.rpcResult ?? { data: 1, error: null });
+  const rpc = vi.fn().mockImplementation((name: string) => {
+    if (options?.rpcResults?.[name] !== undefined) {
+      return Promise.resolve(options.rpcResults[name]);
+    }
+    if (name === "consume_rate_limit") {
+      return Promise.resolve({ data: 1, error: null });
+    }
+    return Promise.resolve(options?.rpcResult ?? { data: 1, error: null });
+  });
 
   return {
     auth: {
