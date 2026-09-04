@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type Stripe from "stripe";
 import { createSupabaseMock } from "@/test/mocks/supabase";
 
@@ -53,6 +53,10 @@ describe("handleStripeWebhookEvent", () => {
   beforeEach(() => {
     vi.stubEnv("STRIPE_PRICE_PLUS", "price_plus_test");
     vi.stubEnv("STRIPE_PRICE_PRO", "price_pro_test");
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("skips duplicate webhook events (idempotent)", async () => {
@@ -135,9 +139,18 @@ describe("handleStripeWebhookEvent", () => {
     );
 
     expect(supabase.from).toHaveBeenCalledWith("subscriptions");
+    expect(supabase.builders.subscriptions.builder.lastUpdate).toEqual(
+      expect.objectContaining({
+        grace_period_ends_at: null,
+        tier: "free",
+        status: "active",
+      }),
+    );
   });
 
   it("marks subscription past_due on invoice.payment_failed", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-04T12:00:00.000Z"));
     const supabase = createSupabaseMock({
       fromResults: {
         stripe_webhook_events: { data: null, error: null },
@@ -150,7 +163,37 @@ describe("handleStripeWebhookEvent", () => {
       makeEvent("invoice.payment_failed", { customer: "cus_123" }),
     );
 
-    expect(supabase.from).toHaveBeenCalledWith("subscriptions");
+    expect(supabase.builders.subscriptions.builder.lastUpdate).toEqual(
+      expect.objectContaining({
+        status: "past_due",
+        grace_period_ends_at: "2026-09-11T12:00:00.000Z",
+      }),
+    );
+  });
+
+  it("does not extend grace_period_ends_at on a later payment_failed", async () => {
+    const existing = "2026-09-10T00:00:00.000Z";
+    const supabase = createSupabaseMock({
+      fromResults: {
+        stripe_webhook_events: { data: null, error: null },
+        subscriptions: {
+          data: { user_id: "user-1", grace_period_ends_at: existing },
+          error: null,
+        },
+      },
+    });
+    createAdminClientMock.mockReturnValue(supabase);
+
+    await handleStripeWebhookEvent(
+      makeEvent("invoice.payment_failed", { customer: "cus_123" }, "evt_retry"),
+    );
+
+    expect(supabase.builders.subscriptions.builder.lastUpdate).toEqual(
+      expect.objectContaining({
+        status: "past_due",
+        grace_period_ends_at: existing,
+      }),
+    );
   });
 
   it("marks subscription active on invoice.paid when there is no subscription id", async () => {
@@ -168,6 +211,12 @@ describe("handleStripeWebhookEvent", () => {
 
     expect(supabase.from).toHaveBeenCalledWith("subscriptions");
     expect(getStripeMock).not.toHaveBeenCalled();
+    expect(supabase.builders.subscriptions.builder.lastUpdate).toEqual(
+      expect.objectContaining({
+        status: "active",
+        grace_period_ends_at: null,
+      }),
+    );
   });
 
   it("refreshes billing period on invoice.paid when a subscription is present", async () => {

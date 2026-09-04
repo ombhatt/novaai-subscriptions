@@ -1,3 +1,4 @@
+import { isWithinDunningGrace } from "@/lib/dunning";
 import type { Tier, SubscriptionStatus } from "@/lib/tiers";
 import { TIER_LIMITS } from "@/lib/tiers";
 
@@ -11,6 +12,7 @@ export interface Subscription {
   current_period_start: string | null;
   current_period_end: string | null;
   cancel_at_period_end: boolean;
+  grace_period_ends_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -58,6 +60,7 @@ export function usagePeriodStart(
 export function evaluateEntitlement(
   subscription: Subscription | null,
   usageCount: number,
+  now = new Date(),
 ): EntitlementResult {
   const tier = subscription?.tier ?? "free";
   const status = subscription?.status ?? "active";
@@ -75,7 +78,7 @@ export function evaluateEntitlement(
     };
   }
 
-  if (status === "past_due") {
+  if (status === "past_due" && !isWithinDunningGrace(subscription, now)) {
     return {
       allowed: false,
       tier,

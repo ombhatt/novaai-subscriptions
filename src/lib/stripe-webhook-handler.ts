@@ -1,4 +1,5 @@
 import type Stripe from "stripe";
+import { nextGracePeriodEndsAt } from "@/lib/dunning";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   getInvoiceSubscriptionId,
@@ -57,6 +58,21 @@ async function findUserIdByCustomerId(customerId: string): Promise<string | null
   return data?.user_id ?? null;
 }
 
+async function existingGracePeriodEndsAt(userId: string): Promise<string | null> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("subscriptions")
+    .select("grace_period_ends_at")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to look up grace period: ${error.message}`);
+  }
+
+  return data?.grace_period_ends_at ?? null;
+}
+
 async function upsertSubscriptionFromStripe(
   userId: string,
   customerId: string,
@@ -66,6 +82,11 @@ async function upsertSubscriptionFromStripe(
   const priceId = subscription.items.data[0]?.price.id;
   const tier = tierFromStripePriceId(priceId);
   const { currentPeriodStart, currentPeriodEnd } = getSubscriptionPeriod(subscription);
+  const status = mapStripeStatus(subscription.status);
+  const gracePeriodEndsAt = nextGracePeriodEndsAt(
+    await existingGracePeriodEndsAt(userId),
+    status,
+  );
 
   const { error } = await supabase.from("subscriptions").upsert(
     {
@@ -73,7 +94,7 @@ async function upsertSubscriptionFromStripe(
       stripe_customer_id: customerId,
       stripe_subscription_id: subscription.id,
       tier,
-      status: mapStripeStatus(subscription.status),
+      status,
       current_period_start: currentPeriodStart
         ? new Date(currentPeriodStart * 1000).toISOString()
         : null,
@@ -81,6 +102,7 @@ async function upsertSubscriptionFromStripe(
         ? new Date(currentPeriodEnd * 1000).toISOString()
         : null,
       cancel_at_period_end: subscription.cancel_at_period_end,
+      grace_period_ends_at: gracePeriodEndsAt,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "user_id" },
@@ -91,7 +113,7 @@ async function upsertSubscriptionFromStripe(
   }
 }
 
-async function downgradeToFree(userId: string, customerId?: string) {
+export async function downgradeToFree(userId: string, customerId?: string) {
   const supabase = createAdminClient();
 
   const { error } = await supabase
@@ -103,6 +125,7 @@ async function downgradeToFree(userId: string, customerId?: string) {
       cancel_at_period_end: false,
       current_period_start: null,
       current_period_end: null,
+      grace_period_ends_at: null,
       updated_at: new Date().toISOString(),
       ...(customerId ? { stripe_customer_id: customerId } : {}),
     })
@@ -186,11 +209,17 @@ export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<voi
       const userId = await findUserIdByCustomerId(customerId);
       if (!userId) break;
 
+      const gracePeriodEndsAt = nextGracePeriodEndsAt(
+        await existingGracePeriodEndsAt(userId),
+        "past_due",
+      );
+
       const supabase = createAdminClient();
       const { error } = await supabase
         .from("subscriptions")
         .update({
           status: "past_due",
+          grace_period_ends_at: gracePeriodEndsAt,
           updated_at: new Date().toISOString(),
         })
         .eq("user_id", userId);
@@ -224,6 +253,7 @@ export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<voi
         .from("subscriptions")
         .update({
           status: "active",
+          grace_period_ends_at: null,
           updated_at: new Date().toISOString(),
         })
         .eq("user_id", userId);

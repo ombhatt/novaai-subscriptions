@@ -128,4 +128,31 @@ describe("DashboardClient", () => {
       expect.objectContaining({ method: "POST" }),
     );
   });
+
+  it("shows a dunning banner while past_due is still in grace", async () => {
+    vi.spyOn(global, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          subscription: {
+            status: "past_due",
+            grace_period_ends_at: "2099-01-15T00:00:00.000Z",
+          },
+          usage: 10,
+          limit: 50000,
+          remaining: 49990,
+          tier: "plus",
+          status: "past_due",
+        }),
+        { status: 200 },
+      ),
+    );
+
+    render(<DashboardClient />);
+
+    expect(await screen.findByTestId("dunning-banner")).toHaveTextContent(
+      /Update your payment method/,
+    );
+    expect(screen.getByTestId("dunning-banner")).toHaveTextContent(/Plus/);
+    expect(screen.getByRole("button", { name: "Manage billing" })).toBeInTheDocument();
+  });
 });
