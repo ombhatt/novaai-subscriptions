@@ -46,6 +46,28 @@ function mapStripeStatus(status: Stripe.Subscription.Status): SubscriptionStatus
   }
 }
 
+const GRACE_PERIOD_DAYS = 7;
+
+function gracePeriodEndsAt(from = new Date()): Date {
+  const end = new Date(from.getTime());
+  end.setUTCDate(end.getUTCDate() + GRACE_PERIOD_DAYS);
+  return end;
+}
+
+function nextGracePeriodEndsAt(
+  existing: string | null | undefined,
+  status: SubscriptionStatus,
+  now = new Date(),
+): string | null {
+  if (status === "active" || status === "trialing") {
+    return null;
+  }
+  if (status === "past_due") {
+    return existing ?? gracePeriodEndsAt(now).toISOString();
+  }
+  return existing ?? null;
+}
+
 async function recordEvent(eventId: string, eventType: string): Promise<boolean> {
   const { error } = await supabase.from("stripe_webhook_events").insert({
     id: eventId,
@@ -68,6 +90,17 @@ async function findUserId(customerId: string): Promise<string | null> {
   return data?.user_id ?? null;
 }
 
+async function existingGracePeriodEndsAt(userId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("subscriptions")
+    .select("grace_period_ends_at")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return data?.grace_period_ends_at ?? null;
+}
+
 async function upsertSubscription(
   userId: string,
   customerId: string,
@@ -75,13 +108,18 @@ async function upsertSubscription(
 ) {
   const priceId = subscription.items.data[0]?.price.id;
   const item = subscription.items.data[0];
+  const status = mapStripeStatus(subscription.status);
+  const gracePeriodEndsAt = nextGracePeriodEndsAt(
+    await existingGracePeriodEndsAt(userId),
+    status,
+  );
   const { error } = await supabase.from("subscriptions").upsert(
     {
       user_id: userId,
       stripe_customer_id: customerId,
       stripe_subscription_id: subscription.id,
       tier: tierFromPriceId(priceId),
-      status: mapStripeStatus(subscription.status),
+      status,
       current_period_start: item?.current_period_start
         ? new Date(item.current_period_start * 1000).toISOString()
         : null,
@@ -89,6 +127,7 @@ async function upsertSubscription(
         ? new Date(item.current_period_end * 1000).toISOString()
         : null,
       cancel_at_period_end: subscription.cancel_at_period_end,
+      grace_period_ends_at: gracePeriodEndsAt,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "user_id" },
@@ -107,6 +146,7 @@ async function downgradeToFree(userId: string, customerId?: string) {
       cancel_at_period_end: false,
       current_period_start: null,
       current_period_end: null,
+      grace_period_ends_at: null,
       updated_at: new Date().toISOString(),
       ...(customerId ? { stripe_customer_id: customerId } : {}),
     })
@@ -179,9 +219,18 @@ async function handleEvent(event: Stripe.Event) {
       const userId = await findUserId(customerId);
       if (!userId) break;
 
+      const gracePeriodEndsAt = nextGracePeriodEndsAt(
+        await existingGracePeriodEndsAt(userId),
+        "past_due",
+      );
+
       const { error } = await supabase
         .from("subscriptions")
-        .update({ status: "past_due", updated_at: new Date().toISOString() })
+        .update({
+          status: "past_due",
+          grace_period_ends_at: gracePeriodEndsAt,
+          updated_at: new Date().toISOString(),
+        })
         .eq("user_id", userId);
 
       if (error) throw new Error(error.message);
@@ -215,7 +264,11 @@ async function handleEvent(event: Stripe.Event) {
 
       const { error } = await supabase
         .from("subscriptions")
-        .update({ status: "active", updated_at: new Date().toISOString() })
+        .update({
+          status: "active",
+          grace_period_ends_at: null,
+          updated_at: new Date().toISOString(),
+        })
         .eq("user_id", userId);
 
       if (error) throw new Error(error.message);

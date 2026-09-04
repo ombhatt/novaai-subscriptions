@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import type { Subscription } from "@/lib/entitlements";
+import { isWithinDunningGrace } from "@/lib/dunning";
 import { TIER_LIMITS, type Tier } from "@/lib/tiers";
 import { AlertCircle, CreditCard, Loader2 } from "lucide-react";
 
@@ -148,9 +149,27 @@ export function DashboardClient() {
 
   const tierDetails = TIER_LIMITS[data.tier];
   const usagePercent = Math.min(100, (data.usage / data.limit) * 100);
+  const inDunningGrace = isWithinDunningGrace(data.subscription);
+  const graceEndsLabel = data.subscription?.grace_period_ends_at
+    ? new Date(data.subscription.grace_period_ends_at).toLocaleDateString()
+    : null;
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
+    <div className="space-y-6">
+      {inDunningGrace && graceEndsLabel && (
+        <div
+          data-testid="dunning-banner"
+          className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm"
+        >
+          <p className="font-medium text-destructive">Payment failed</p>
+          <p className="mt-1 text-muted-foreground">
+            Update your payment method by {graceEndsLabel} to keep {tierDetails.label}{" "}
+            access. Use Manage billing to fix the card on file.
+          </p>
+        </div>
+      )}
+
+      <div className="grid gap-6 lg:grid-cols-2">
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
@@ -242,6 +261,7 @@ export function DashboardClient() {
           )}
         </CardContent>
       </Card>
+    </div>
     </div>
   );
 }

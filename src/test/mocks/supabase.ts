@@ -17,17 +17,34 @@ export function createQueryBuilder(result: QueryResult = { data: null, error: nu
   for (const method of [
     "select",
     "insert",
-    "upsert",
-    "update",
     "delete",
     "eq",
     "neq",
+    "lt",
+    "lte",
+    "gt",
+    "gte",
+    "not",
+    "is",
     "in",
     "order",
     "limit",
   ]) {
     builder[method] = chain;
   }
+
+  builder.update = vi.fn((payload?: unknown) => {
+    if (payload && typeof payload === "object") {
+      builder.lastUpdate = payload;
+    }
+    return builder;
+  });
+  builder.upsert = vi.fn((payload?: unknown) => {
+    if (payload && typeof payload === "object") {
+      builder.lastUpsert = payload;
+    }
+    return builder;
+  });
 
   builder.maybeSingle = terminal;
   builder.single = terminal;
@@ -101,6 +118,7 @@ export function makeSubscription(overrides: Record<string, unknown> = {}) {
     current_period_start: null,
     current_period_end: null,
     cancel_at_period_end: false,
+    grace_period_ends_at: null,
     created_at: "2026-01-01T00:00:00.000Z",
     updated_at: "2026-01-01T00:00:00.000Z",
     ...overrides,

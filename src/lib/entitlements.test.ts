@@ -55,6 +55,10 @@ describe("usagePeriodStart", () => {
 });
 
 describe("evaluateEntitlement", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("defaults to free/active when subscription is null", () => {
     const result = evaluateEntitlement(null, 10);
     expect(result.allowed).toBe(true);
@@ -97,6 +101,45 @@ describe("evaluateEntitlement", () => {
     const result = evaluateEntitlement(sub, 5);
     expect(result.allowed).toBe(false);
     expect(result.reason).toMatch(/Payment failed/);
+  });
+
+  it("allows past_due during an open dunning grace window", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-04T12:00:00.000Z"));
+    const sub = makeSubscription({
+      status: "past_due",
+      tier: "plus",
+      grace_period_ends_at: "2026-09-11T12:00:00.000Z",
+    }) as Subscription;
+    const result = evaluateEntitlement(sub, 5);
+    expect(result.allowed).toBe(true);
+    expect(result.remaining).toBe(TIER_LIMITS.plus.requestsPerMonth - 5);
+    vi.useRealTimers();
+  });
+
+  it("blocks past_due after the grace window expires", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-12T00:00:00.000Z"));
+    const sub = makeSubscription({
+      status: "past_due",
+      tier: "plus",
+      grace_period_ends_at: "2026-09-11T12:00:00.000Z",
+    }) as Subscription;
+    const result = evaluateEntitlement(sub, 0);
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toMatch(/Payment failed/);
+    vi.useRealTimers();
+  });
+
+  it("still enforces usage limits during dunning grace", () => {
+    const sub = makeSubscription({
+      status: "past_due",
+      tier: "plus",
+      grace_period_ends_at: "2099-01-01T00:00:00.000Z",
+    }) as Subscription;
+    const result = evaluateEntitlement(sub, TIER_LIMITS.plus.requestsPerMonth);
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toMatch(/Monthly limit/);
   });
 
   it("allows trialing subscriptions under limit", () => {

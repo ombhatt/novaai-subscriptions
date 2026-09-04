@@ -44,7 +44,8 @@ STRIPE_SECRET_KEY=sk_test_... node scripts/stripe-setup.mjs
 ```
 
 3. Enable the **Customer Portal** in Stripe Dashboard → Settings → Billing → Customer portal.
-4. Create a webhook endpoint pointing to your Supabase Edge Function URL:
+4. Under **Settings → Billing → Manage failed payments**, retry failed invoices over about 7 days, then **cancel the subscription**. Stripe retries the card; this app keeps paid access for 7 days from the first failure, then a cron job cancels if the invoice is still unpaid.
+5. Create a webhook endpoint pointing to your Supabase Edge Function URL:
    - Production: `https://<project-ref>.supabase.co/functions/v1/stripe-webhook`
    - Local dev fallback: `http://localhost:43123/api/webhooks/stripe` (use Stripe CLI)
 
@@ -86,12 +87,14 @@ src/
       portal/         # Stripe Customer Portal
       subscription/   # Current plan + usage
       chat/           # Mock AI endpoint with entitlement checks
+      cron/dunning    # Cancel past_due subs after the 7-day grace
       webhooks/stripe # Local webhook fallback
     dashboard/        # Usage + billing UI
     pricing/          # Tier selection
   lib/
     tiers.ts          # Tier limits and pricing
     entitlements.ts   # Access control logic
+    dunning.ts        # 7-day past_due grace window
     stripe-webhook-handler.ts
 supabase/
   migrations/         # Postgres schema
@@ -106,6 +109,7 @@ supabase/
 | `/api/checkout` | POST | Create Stripe Checkout (`{ tier: "plus" \| "pro" }`) |
 | `/api/portal` | POST | Open Stripe billing portal |
 | `/api/chat` | POST | Mock AI request with entitlement enforcement |
+| `/api/cron/dunning` | GET/POST | Cancel Stripe subscriptions whose 7-day grace has elapsed (`Authorization: Bearer $CRON_SECRET`) |
 
 ## Tests
 
@@ -119,7 +123,7 @@ npm test
 
 These Vitest cases talk to the configured Supabase project (same keys as `.env.local`). They are skipped when those keys are missing.
 
-Apply migrations first (`supabase db push`, or run the SQL in the dashboard), including `supabase/migrations/20260902120000_restrict_increment_usage.sql` and `supabase/migrations/20260903140000_increment_usage_period_start.sql` so `increment_usage(user_id, period_start)` is only executable by the service role.
+Apply migrations first (`supabase db push`, or run the SQL in the dashboard), including `supabase/migrations/20260902120000_restrict_increment_usage.sql`, `supabase/migrations/20260903140000_increment_usage_period_start.sql`, and `supabase/migrations/20260904120000_dunning_grace_period.sql`.
 
 ```bash
 npm run test:db
@@ -157,6 +161,18 @@ stripe listen --forward-to localhost:43123/api/webhooks/stripe
 
 Copy the webhook signing secret into `STRIPE_WEBHOOK_SECRET`.
 
+To test a failed renewal, use Stripe test card `4000 0000 0000 0341`. The first `invoice.payment_failed` starts a 7-day grace window; the dashboard shows a warning and the API keeps Plus/Pro access until that deadline.
+
+## Dunning cron
+
+After grace expires, cancel leftover `past_due` subscriptions:
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:43123/api/cron/dunning
+```
+
+On Vercel, [`vercel.json`](vercel.json) schedules `GET /api/cron/dunning` daily at 14:00 UTC. Set `CRON_SECRET` in the project env; Vercel sends it as `Authorization: Bearer $CRON_SECRET`.
+
 ## What ships in this MVP
 
 - Sign up / sign in (Supabase Auth)
@@ -164,7 +180,8 @@ Copy the webhook signing secret into `STRIPE_WEBHOOK_SECRET`.
 - Pricing page with Stripe Checkout for Plus/Pro
 - Dashboard with usage meter and billing portal link
 - Webhook sync (idempotent) for subscription lifecycle
-- Entitlement checks on API requests (limits + past_due blocking)
+- 7-day dunning grace after payment failure, then cancel and drop to Free
+- Entitlement checks on API requests (limits + past_due after grace)
 
 ## Next steps
 
@@ -172,4 +189,3 @@ Copy the webhook signing secret into `STRIPE_WEBHOOK_SECRET`.
 - Team/seat-based plans
 - Rate limiting with Redis
 - Usage overage billing
-- Email notifications on payment failure

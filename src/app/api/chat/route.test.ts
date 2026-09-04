@@ -98,6 +98,37 @@ describe("POST /api/chat", () => {
     expect(response.status).toBe(402);
   });
 
+  it("allows past_due Plus requests during the 7-day grace period", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        subscriptions: {
+          data: makeSubscription({
+            tier: "plus",
+            status: "past_due",
+            grace_period_ends_at: "2099-01-01T00:00:00.000Z",
+          }),
+          error: null,
+        },
+        usage_counters: { data: { request_count: 0 }, error: null },
+      },
+    });
+    createClientMock.mockResolvedValue(supabase);
+    createAdminClientMock.mockReturnValue(
+      createSupabaseMock({
+        rpcResult: { data: 1, error: null },
+      }),
+    );
+
+    const response = await POST(
+      new Request("http://localhost/api/chat", {
+        method: "POST",
+        body: JSON.stringify({ prompt: "hello" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+  });
+
   it("processes a valid request and increments usage", async () => {
     const supabase = createSupabaseMock({
       fromResults: {
