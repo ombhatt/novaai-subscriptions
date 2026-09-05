@@ -131,6 +131,12 @@ CI runs `npm run test:coverage` and fails the PR if lines, statements, branches,
 npm run test:coverage
 ```
 
+CI also runs `npm run audit` and fails the PR if npm reports any known vulnerability (info and above) in the lockfile. Locally:
+
+```bash
+npm run audit
+```
+
 ### Database tests (trigger, RLS, increment_usage)
 
 These Vitest cases talk to the configured Supabase project (same keys as `.env.local`). They are skipped when those keys are missing.
