@@ -13,7 +13,11 @@ export function portalReturnUrl() {
 
 export async function mockCheckout(
   page: Page,
-  options: { expectedTier: Exclude<Tier, "free">; redirectUrl: string },
+  options: {
+    expectedTier: Exclude<Tier, "free">;
+    redirectUrl: string;
+    expectedPromoCode?: string;
+  },
 ) {
   await page.route("**/api/checkout", async (route) => {
     if (route.request().method() !== "POST") {
@@ -21,8 +25,14 @@ export async function mockCheckout(
       return;
     }
 
-    const body = route.request().postDataJSON() as { tier?: string };
+    const body = route.request().postDataJSON() as {
+      tier?: string;
+      promoCode?: string;
+    };
     expect(body.tier).toBe(options.expectedTier);
+    if (options.expectedPromoCode !== undefined) {
+      expect(body.promoCode).toBe(options.expectedPromoCode);
+    }
 
     await route.fulfill({
       status: 200,

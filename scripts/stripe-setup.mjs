@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Creates Stripe products/prices for Plus and Pro tiers.
+ * Creates Stripe products/prices for Plus and Pro tiers, plus a sample
+ * WELCOME20 promotion code (20% off the first invoice).
  * Usage: STRIPE_SECRET_KEY=sk_test_... node scripts/stripe-setup.mjs
  */
 import Stripe from "stripe";
@@ -48,6 +49,37 @@ for (const tier of tiers) {
   console.log(`  Product ID: ${product.id}`);
   console.log(`  Price ID:   ${price.id}`);
   console.log(`  Add to .env.local: ${tier.envKey}=${price.id}\n`);
+}
+
+const SAMPLE_PROMO_CODE = "WELCOME20";
+
+console.log("Creating sample coupon and promotion code...\n");
+
+const existingCodes = await stripe.promotionCodes.list({
+  code: SAMPLE_PROMO_CODE,
+  limit: 1,
+});
+
+if (existingCodes.data[0]) {
+  console.log(`Promotion code ${SAMPLE_PROMO_CODE} already exists`);
+  console.log(`  Promotion code ID: ${existingCodes.data[0].id}\n`);
+} else {
+  const coupon = await stripe.coupons.create({
+    percent_off: 20,
+    duration: "once",
+    name: "Welcome 20%",
+  });
+
+  const promotionCode = await stripe.promotionCodes.create({
+    promotion: { type: "coupon", coupon: coupon.id },
+    code: SAMPLE_PROMO_CODE,
+  });
+
+  console.log(`Coupon ${coupon.name}`);
+  console.log(`  Coupon ID:          ${coupon.id}`);
+  console.log(`  Promotion code:     ${promotionCode.code}`);
+  console.log(`  Promotion code ID:  ${promotionCode.id}`);
+  console.log("  20% off the first invoice. Enter it on /pricing.\n");
 }
 
 console.log("Done. Copy the price IDs into your .env.local file.");

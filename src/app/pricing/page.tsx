@@ -1,5 +1,30 @@
+import { Suspense } from "react";
 import { SiteHeader } from "@/components/site-header";
 import { PricingPageClient } from "@/components/pricing-page-client";
+import { PricingCards } from "@/components/pricing-cards";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+function PricingFallback() {
+  return (
+    <>
+      <div className="mx-auto mb-8 max-w-sm">
+        <Label htmlFor="promo-code">Promo code</Label>
+        <Input
+          id="promo-code"
+          data-testid="promo-code"
+          className="mt-2"
+          placeholder="WELCOME20"
+          disabled
+        />
+        <p className="mt-1 text-xs text-muted-foreground">
+          Optional. The discount is applied on the Stripe checkout page.
+        </p>
+      </div>
+      <PricingCards />
+    </>
+  );
+}
 
 export default function PricingPage() {
   return (
@@ -15,7 +40,9 @@ export default function PricingPage() {
             support. All plans bill monthly through Stripe.
           </p>
         </div>
-        <PricingPageClient />
+        <Suspense fallback={<PricingFallback />}>
+          <PricingPageClient />
+        </Suspense>
       </main>
     </div>
   );

@@ -34,6 +34,11 @@ test.describe("public pages", () => {
     await expect(page.getByRole("button", { name: "Upgrade to Pro" })).toBeVisible();
   });
 
+  test("pricing page prefills promo from the query string", async ({ page }) => {
+    await page.goto("/pricing?promo=WELCOME20");
+    await expect(page.getByTestId("promo-code")).toHaveValue("WELCOME20");
+  });
+
   test("unauthenticated upgrade to Plus goes to signup with plan query", async ({
     page,
   }) => {
