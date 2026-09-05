@@ -36,7 +36,7 @@ import PricingPage from "@/app/pricing/page";
 describe("app pages", () => {
   it("renders the root layout", () => {
     render(
-      <RootLayout>
+      <RootLayout params={Promise.resolve({})}>
         <div>child</div>
       </RootLayout>,
     );

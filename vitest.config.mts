@@ -17,7 +17,6 @@ export default defineConfig({
     mockReset: true,
     coverage: {
       provider: "v8",
-      all: true,
       include: ["src/**/*.{ts,tsx}"],
       exclude: ["src/**/*.{test,spec}.{ts,tsx}", "src/test/**"],
       reporter: ["text", "text-summary"],
