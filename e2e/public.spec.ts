@@ -47,6 +47,12 @@ test.describe("public pages", () => {
     await expect(page).toHaveURL(/\/signup\?plan=plus/);
   });
 
+  test("unauthenticated upgrade carries promo to signup", async ({ page }) => {
+    await page.goto("/pricing?promo=WELCOME20");
+    await page.getByRole("button", { name: "Upgrade to Plus" }).click();
+    await expect(page).toHaveURL(/\/signup\?plan=plus&promo=WELCOME20/);
+  });
+
   test("dashboard redirects guests to login", async ({ page }) => {
     await page.goto("/dashboard");
     await expect(page).toHaveURL(/\/login\?redirect=%2Fdashboard/);

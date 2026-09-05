@@ -116,6 +116,32 @@ describe("PricingPageClient", () => {
     expect(screen.getByTestId("promo-code")).toHaveValue("NOPE");
   });
 
+  it("sends guests to signup with plan and promo query params", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(global, "fetch").mockImplementation((input) => {
+      const url = String(input);
+      if (url.includes("/api/subscription")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ tier: "free" }), { status: 200 }),
+        );
+      }
+      if (url.includes("/api/me")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ user: null }), { status: 200 }),
+        );
+      }
+      return Promise.reject(new Error(`unexpected fetch: ${url}`));
+    });
+
+    render(<PricingPageClient />);
+    await user.type(screen.getByTestId("promo-code"), "WELCOME20");
+    await user.click(screen.getByRole("button", { name: "Upgrade to Plus" }));
+
+    await waitFor(() => {
+      expect(pushMock).toHaveBeenCalledWith("/signup?plan=plus&promo=WELCOME20");
+    });
+  });
+
   it("omits promoCode when the field is empty", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.spyOn(global, "fetch").mockImplementation((input) => {
