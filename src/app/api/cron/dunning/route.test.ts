@@ -73,6 +73,100 @@ describe("cancelExpiredDunningSubscriptions", () => {
     expect(cancel).not.toHaveBeenCalled();
     expect(result.canceled).toBe(0);
   });
+
+  it("throws when the subscription query fails", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        subscriptions: { data: null, error: { message: "db down" } },
+      },
+    });
+    createAdminClientMock.mockReturnValue(supabase);
+
+    await expect(cancelExpiredDunningSubscriptions()).rejects.toThrow(
+      /Failed to load expired dunning subscriptions: db down/,
+    );
+  });
+
+  it("treats already-canceled Stripe errors as success", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        subscriptions: {
+          data: [
+            {
+              user_id: "user-1",
+              stripe_customer_id: null,
+              stripe_subscription_id: "sub_gone",
+            },
+          ],
+          error: null,
+        },
+      },
+    });
+    createAdminClientMock.mockReturnValue(supabase);
+    getStripeMock.mockReturnValue({
+      subscriptions: {
+        cancel: vi.fn().mockRejectedValue(new Error("No such subscription")),
+      },
+    });
+
+    const result = await cancelExpiredDunningSubscriptions();
+
+    expect(downgradeToFreeMock).toHaveBeenCalledWith("user-1", undefined);
+    expect(result).toEqual({ canceled: 1, failed: 0, errors: [] });
+  });
+
+  it("records failures when cancel or downgrade throws", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        subscriptions: {
+          data: [
+            {
+              user_id: "user-1",
+              stripe_customer_id: "cus_1",
+              stripe_subscription_id: "sub_fail",
+            },
+          ],
+          error: null,
+        },
+      },
+    });
+    createAdminClientMock.mockReturnValue(supabase);
+    getStripeMock.mockReturnValue({
+      subscriptions: {
+        cancel: vi.fn().mockRejectedValue(new Error("card network down")),
+      },
+    });
+
+    const result = await cancelExpiredDunningSubscriptions();
+
+    expect(result.failed).toBe(1);
+    expect(result.errors[0]).toMatch(/sub_fail: card network down/);
+  });
+
+  it("stringifies non-Error sweep failures", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        subscriptions: {
+          data: [
+            {
+              user_id: "user-1",
+              stripe_customer_id: "cus_1",
+              stripe_subscription_id: "sub_boom",
+            },
+          ],
+          error: null,
+        },
+      },
+    });
+    createAdminClientMock.mockReturnValue(supabase);
+    getStripeMock.mockReturnValue({
+      subscriptions: { cancel: vi.fn().mockRejectedValue("hard fail") },
+    });
+
+    const result = await cancelExpiredDunningSubscriptions();
+
+    expect(result.errors[0]).toMatch(/sub_boom: Unknown dunning error/);
+  });
 });
 
 describe("GET/POST /api/cron/dunning", () => {
@@ -113,6 +207,39 @@ describe("GET/POST /api/cron/dunning", () => {
       canceled: 0,
       failed: 0,
       errors: [],
+    });
+  });
+
+  it("returns 500 when the sweep throws", async () => {
+    createAdminClientMock.mockImplementation(() => {
+      throw new Error("admin missing");
+    });
+
+    const response = await POST(
+      new Request("http://localhost/api/cron/dunning", {
+        method: "POST",
+        headers: { Authorization: "Bearer test-cron-secret" },
+      }),
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({ error: "admin missing" });
+  });
+
+  it("returns a generic 500 when the sweep throws a non-Error", async () => {
+    createAdminClientMock.mockImplementation(() => {
+      throw "boom";
+    });
+
+    const response = await GET(
+      new Request("http://localhost/api/cron/dunning", {
+        headers: { Authorization: "Bearer test-cron-secret" },
+      }),
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: "Dunning sweep failed",
     });
   });
 });

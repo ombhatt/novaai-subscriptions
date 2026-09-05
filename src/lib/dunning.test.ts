@@ -71,4 +71,11 @@ describe("nextGracePeriodEndsAt", () => {
     expect(nextGracePeriodEndsAt("2026-09-11T12:00:00.000Z", "active", now)).toBeNull();
     expect(nextGracePeriodEndsAt("2026-09-11T12:00:00.000Z", "trialing", now)).toBeNull();
   });
+
+  it("keeps an existing deadline for canceled or incomplete statuses", () => {
+    expect(nextGracePeriodEndsAt("2026-09-11T12:00:00.000Z", "canceled", now)).toBe(
+      "2026-09-11T12:00:00.000Z",
+    );
+    expect(nextGracePeriodEndsAt(null, "incomplete", now)).toBeNull();
+  });
 });

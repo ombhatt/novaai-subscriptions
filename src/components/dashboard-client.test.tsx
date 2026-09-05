@@ -155,4 +155,130 @@ describe("DashboardClient", () => {
     expect(screen.getByTestId("dunning-banner")).toHaveTextContent(/Plus/);
     expect(screen.getByRole("button", { name: "Manage billing" })).toBeInTheDocument();
   });
+
+  it("does not submit an empty chat prompt", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.spyOn(global, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          subscription: null,
+          usage: 0,
+          limit: 1000,
+          remaining: 1000,
+          tier: "free",
+          status: "canceled",
+        }),
+        { status: 200 },
+      ),
+    );
+
+    render(<DashboardClient />);
+    await screen.findByText("Current plan");
+    await user.click(screen.getByRole("button", { name: "Send request" }));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("dashboard-status")).toHaveTextContent("canceled");
+  });
+
+  it("shows a chat error when the API fails", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(global, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            subscription: null,
+            usage: 0,
+            limit: 1000,
+            remaining: 1000,
+            tier: "free",
+            status: "active",
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "Monthly limit reached" }), {
+          status: 429,
+        }),
+      );
+
+    render(<DashboardClient />);
+    await screen.findByText("Current plan");
+    await user.type(
+      screen.getByPlaceholderText(/Summarize our Q3 product roadmap/),
+      "hello",
+    );
+    await user.click(screen.getByRole("button", { name: "Send request" }));
+
+    expect(await screen.findByTestId("chat-reply")).toHaveTextContent(
+      "Monthly limit reached",
+    );
+  });
+
+  it("opens the billing portal and reports portal errors", async () => {
+    const user = userEvent.setup();
+    const location = { href: "http://localhost/dashboard" };
+    vi.stubGlobal("location", location);
+
+    vi.spyOn(global, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            subscription: { current_period_end: "2026-10-01T00:00:00.000Z" },
+            usage: 1,
+            limit: 50000,
+            remaining: 49999,
+            tier: "plus",
+            status: "active",
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "No billing account" }), {
+          status: 400,
+        }),
+      );
+
+    render(<DashboardClient />);
+    await screen.findByRole("button", { name: "Manage billing" });
+    await user.click(screen.getByRole("button", { name: "Manage billing" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Manage billing" })).toBeEnabled();
+    });
+  });
+
+  it("redirects to the Stripe portal URL", async () => {
+    const user = userEvent.setup();
+    const location = { href: "http://localhost/dashboard" };
+    vi.stubGlobal("location", location);
+
+    vi.spyOn(global, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            subscription: null,
+            usage: 0,
+            limit: 50000,
+            remaining: 50000,
+            tier: "plus",
+            status: "active",
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ url: "https://billing.stripe.com/p" }), {
+          status: 200,
+        }),
+      );
+
+    render(<DashboardClient />);
+    await user.click(await screen.findByRole("button", { name: "Manage billing" }));
+
+    await waitFor(() => {
+      expect(location.href).toBe("https://billing.stripe.com/p");
+    });
+  });
 });

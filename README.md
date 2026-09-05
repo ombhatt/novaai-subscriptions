@@ -125,6 +125,12 @@ Unit tests cover tier/entitlement logic, Stripe webhook handling, API routes, mi
 npm test
 ```
 
+CI runs `npm run test:coverage` and fails the PR if lines, statements, branches, or functions drop below **80%** of `src/` (excluding test files). Locally:
+
+```bash
+npm run test:coverage
+```
+
 ### Database tests (trigger, RLS, increment_usage)
 
 These Vitest cases talk to the configured Supabase project (same keys as `.env.local`). They are skipped when those keys are missing.
