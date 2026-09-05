@@ -112,6 +112,163 @@ describe("POST /api/checkout", () => {
         line_items: [{ price: "price_plus", quantity: 1 }],
       }),
     );
+    expect(createSession.mock.calls[0]?.[0]).not.toHaveProperty("discounts");
+  });
+
+  it("ignores blank promo codes", async () => {
+    isStripeConfiguredMock.mockReturnValue(true);
+    createClientMock.mockResolvedValue(
+      createSupabaseMock({
+        fromResults: {
+          subscriptions: {
+            data: makeSubscription({ stripe_customer_id: "cus_existing" }),
+            error: null,
+          },
+        },
+      }),
+    );
+
+    const listPromotionCodes = vi.fn();
+    const createSession = vi.fn().mockResolvedValue({
+      url: "https://checkout.stripe.com/test",
+    });
+    getStripeMock.mockReturnValue({
+      customers: { create: vi.fn() },
+      promotionCodes: { list: listPromotionCodes },
+      checkout: { sessions: { create: createSession } },
+    });
+
+    const response = await POST(
+      new Request("http://localhost/api/checkout", {
+        method: "POST",
+        body: JSON.stringify({ tier: "plus", promoCode: "   " }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(listPromotionCodes).not.toHaveBeenCalled();
+    expect(createSession.mock.calls[0]?.[0]).not.toHaveProperty("discounts");
+  });
+
+  it("applies a valid promo code as a checkout discount", async () => {
+    isStripeConfiguredMock.mockReturnValue(true);
+    createClientMock.mockResolvedValue(
+      createSupabaseMock({
+        fromResults: {
+          subscriptions: {
+            data: makeSubscription({ stripe_customer_id: "cus_existing" }),
+            error: null,
+          },
+        },
+      }),
+    );
+
+    const listPromotionCodes = vi.fn().mockResolvedValue({
+      data: [{ id: "promo_welcome20" }],
+    });
+    const createSession = vi.fn().mockResolvedValue({
+      url: "https://checkout.stripe.com/test",
+    });
+    getStripeMock.mockReturnValue({
+      customers: { create: vi.fn() },
+      promotionCodes: { list: listPromotionCodes },
+      checkout: { sessions: { create: createSession } },
+    });
+
+    const response = await POST(
+      new Request("http://localhost/api/checkout", {
+        method: "POST",
+        body: JSON.stringify({ tier: "plus", promoCode: " welcome20 " }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(listPromotionCodes).toHaveBeenCalledWith({
+      code: "welcome20",
+      active: true,
+      limit: 1,
+    });
+    expect(createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        discounts: [{ promotion_code: "promo_welcome20" }],
+      }),
+    );
+    expect(createSession.mock.calls[0]?.[0]).not.toHaveProperty(
+      "allow_promotion_codes",
+    );
+  });
+
+  it("returns 400 when the promo code is unknown", async () => {
+    isStripeConfiguredMock.mockReturnValue(true);
+    createClientMock.mockResolvedValue(
+      createSupabaseMock({
+        fromResults: {
+          subscriptions: {
+            data: makeSubscription({ stripe_customer_id: "cus_existing" }),
+            error: null,
+          },
+        },
+      }),
+    );
+
+    const createSession = vi.fn();
+    getStripeMock.mockReturnValue({
+      customers: { create: vi.fn() },
+      promotionCodes: { list: vi.fn().mockResolvedValue({ data: [] }) },
+      checkout: { sessions: { create: createSession } },
+    });
+
+    const response = await POST(
+      new Request("http://localhost/api/checkout", {
+        method: "POST",
+        body: JSON.stringify({ tier: "plus", promoCode: "NOPE" }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Invalid or expired promo code.",
+    });
+    expect(createSession).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when Stripe rejects the promo on the selected plan", async () => {
+    isStripeConfiguredMock.mockReturnValue(true);
+    createClientMock.mockResolvedValue(
+      createSupabaseMock({
+        fromResults: {
+          subscriptions: {
+            data: makeSubscription({ stripe_customer_id: "cus_existing" }),
+            error: null,
+          },
+        },
+      }),
+    );
+
+    const stripeError = Object.assign(new Error("Coupon does not apply."), {
+      type: "StripeInvalidRequestError",
+    });
+    getStripeMock.mockReturnValue({
+      customers: { create: vi.fn() },
+      promotionCodes: {
+        list: vi.fn().mockResolvedValue({ data: [{ id: "promo_restricted" }] }),
+      },
+      checkout: {
+        sessions: { create: vi.fn().mockRejectedValue(stripeError) },
+      },
+    });
+
+    const response = await POST(
+      new Request("http://localhost/api/checkout", {
+        method: "POST",
+        body: JSON.stringify({ tier: "pro", promoCode: "PLUSONLY" }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "This promo code cannot be applied to this plan.",
+    });
   });
 
   it("creates a Stripe customer when none exists", async () => {

@@ -34,12 +34,23 @@ test.describe("public pages", () => {
     await expect(page.getByRole("button", { name: "Upgrade to Pro" })).toBeVisible();
   });
 
+  test("pricing page prefills promo from the query string", async ({ page }) => {
+    await page.goto("/pricing?promo=WELCOME20");
+    await expect(page.getByTestId("promo-code")).toHaveValue("WELCOME20");
+  });
+
   test("unauthenticated upgrade to Plus goes to signup with plan query", async ({
     page,
   }) => {
     await page.goto("/pricing");
     await page.getByRole("button", { name: "Upgrade to Plus" }).click();
     await expect(page).toHaveURL(/\/signup\?plan=plus/);
+  });
+
+  test("unauthenticated upgrade carries promo to signup", async ({ page }) => {
+    await page.goto("/pricing?promo=WELCOME20");
+    await page.getByRole("button", { name: "Upgrade to Plus" }).click();
+    await expect(page).toHaveURL(/\/signup\?plan=plus&promo=WELCOME20/);
   });
 
   test("dashboard redirects guests to login", async ({ page }) => {

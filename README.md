@@ -37,11 +37,17 @@ npm install
 ### 3. Configure Stripe
 
 1. Create a [Stripe](https://stripe.com) account (test mode is fine).
-2. Run the setup script to create products/prices:
+2. Run the setup script to create products/prices and a sample `WELCOME20` promo code (20% off the first invoice):
 
 ```bash
-STRIPE_SECRET_KEY=sk_test_... node scripts/stripe-setup.mjs
+node scripts/stripe-setup.mjs
 ```
+
+The script reads `.env.local`. If `STRIPE_PRICE_PLUS` / `STRIPE_PRICE_PRO` are already set, it leaves those prices alone and only creates the promo code. On a first run it prints new price IDs to copy into `.env.local`.
+
+Create more coupons and promotion codes in Stripe Dashboard → Product catalog → Coupons. Customers enter the customer-facing code on `/pricing` (or open `/pricing?promo=WELCOME20`). Invalid codes stay on the pricing page; Stripe Checkout shows the discounted total.
+
+Signup from pricing still lands on the dashboard and does not start checkout. After signing in, return to `/pricing` (or a `?promo=` campaign URL) to apply a code.
 
 3. Enable the **Customer Portal** in Stripe Dashboard → Settings → Billing → Customer portal.
 4. Under **Settings → Billing → Manage failed payments**, retry failed invoices over about 7 days, then **cancel the subscription**. Stripe retries the card; this app keeps paid access for 7 days from the first failure, then a cron job cancels if the invoice is still unpaid.
@@ -106,7 +112,7 @@ supabase/
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/subscription` | GET | Current tier, status, and usage |
-| `/api/checkout` | POST | Create Stripe Checkout (`{ tier: "plus" \| "pro" }`) |
+| `/api/checkout` | POST | Create Stripe Checkout (`{ tier: "plus" \| "pro", promoCode?: string }`) |
 | `/api/portal` | POST | Open Stripe billing portal |
 | `/api/chat` | POST | Mock AI request with entitlement enforcement |
 | `/api/cron/dunning` | GET/POST | Cancel Stripe subscriptions whose 7-day grace has elapsed (`Authorization: Bearer $CRON_SECRET`) |
@@ -177,7 +183,7 @@ On Vercel, [`vercel.json`](vercel.json) schedules `GET /api/cron/dunning` daily 
 
 - Sign up / sign in (Supabase Auth)
 - Auto-created Free subscription on registration
-- Pricing page with Stripe Checkout for Plus/Pro
+- Pricing page with Stripe Checkout for Plus/Pro and optional promo codes
 - Dashboard with usage meter and billing portal link
 - Webhook sync (idempotent) for subscription lifecycle
 - 7-day dunning grace after payment failure, then cancel and drop to Free

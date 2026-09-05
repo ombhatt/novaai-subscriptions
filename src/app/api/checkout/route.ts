@@ -1,7 +1,19 @@
 import { NextResponse } from "next/server";
+import type Stripe from "stripe";
 import { createClient } from "@/lib/supabase/server";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import type { Tier } from "@/lib/tiers";
+
+function isStripeInvalidRequestError(
+  error: unknown,
+): error is Stripe.errors.StripeInvalidRequestError {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "type" in error &&
+    (error as { type: unknown }).type === "StripeInvalidRequestError"
+  );
+}
 
 export async function POST(request: Request) {
   if (!isStripeConfigured()) {
@@ -20,7 +32,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { tier } = (await request.json()) as { tier?: Tier };
+  const { tier, promoCode: rawPromoCode } = (await request.json()) as {
+    tier?: Tier;
+    promoCode?: string;
+  };
 
   if (!tier || tier === "free") {
     return NextResponse.json({ error: "Invalid tier for checkout." }, { status: 400 });
@@ -60,7 +75,28 @@ export async function POST(request: Request) {
       .eq("user_id", user.id);
   }
 
-  const session = await stripe.checkout.sessions.create({
+  const promoCode = rawPromoCode?.trim();
+  let discounts: Stripe.Checkout.SessionCreateParams.Discount[] | undefined;
+
+  if (promoCode) {
+    const { data: promotionCodes } = await stripe.promotionCodes.list({
+      code: promoCode,
+      active: true,
+      limit: 1,
+    });
+    const promotionCode = promotionCodes[0];
+
+    if (!promotionCode) {
+      return NextResponse.json(
+        { error: "Invalid or expired promo code." },
+        { status: 400 },
+      );
+    }
+
+    discounts = [{ promotion_code: promotionCode.id }];
+  }
+
+  const sessionParams: Stripe.Checkout.SessionCreateParams = {
     customer: customerId,
     mode: "subscription",
     line_items: [{ price: priceId, quantity: 1 }],
@@ -70,7 +106,22 @@ export async function POST(request: Request) {
     subscription_data: {
       metadata: { user_id: user.id, tier },
     },
-  });
+  };
 
-  return NextResponse.json({ url: session.url });
+  if (discounts) {
+    sessionParams.discounts = discounts;
+  }
+
+  try {
+    const session = await stripe.checkout.sessions.create(sessionParams);
+    return NextResponse.json({ url: session.url });
+  } catch (error) {
+    if (isStripeInvalidRequestError(error)) {
+      return NextResponse.json(
+        { error: "This promo code cannot be applied to this plan." },
+        { status: 400 },
+      );
+    }
+    throw error;
+  }
 }
