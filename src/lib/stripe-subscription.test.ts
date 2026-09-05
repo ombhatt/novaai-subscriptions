@@ -55,4 +55,25 @@ describe("getInvoiceSubscriptionId", () => {
   it("returns null when neither field is present", () => {
     expect(getInvoiceSubscriptionId({} as Stripe.Invoice)).toBeNull();
   });
+
+  it("reads an expanded subscription object id", () => {
+    const invoice = {
+      parent: { subscription_details: { subscription: { id: "sub_obj" } } },
+    } as Stripe.Invoice;
+    expect(getInvoiceSubscriptionId(invoice)).toBe("sub_obj");
+  });
+
+  it("ignores empty or id-less expanded values", () => {
+    expect(
+      getInvoiceSubscriptionId({
+        parent: { subscription_details: { subscription: { id: "" } } },
+      } as Stripe.Invoice),
+    ).toBeNull();
+    expect(
+      getInvoiceSubscriptionId({
+        parent: { subscription_details: { subscription: {} } },
+      } as Stripe.Invoice),
+    ).toBeNull();
+    expect(getInvoiceSubscriptionId({ subscription: "" } as unknown as Stripe.Invoice)).toBeNull();
+  });
 });

@@ -241,6 +241,36 @@ describe("POST /api/chat", () => {
     });
   });
 
+  it("returns 500 when consume_rate_limit fails", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        subscriptions: {
+          data: makeSubscription({ tier: "free" }),
+          error: null,
+        },
+        usage_counters: { data: { request_count: 0 }, error: null },
+      },
+    });
+    createClientMock.mockResolvedValue(supabase);
+    createAdminClientMock.mockReturnValue(
+      createSupabaseMock({
+        rpcResults: {
+          consume_rate_limit: { data: null, error: { message: "rate rpc failed" } },
+        },
+      }),
+    );
+
+    const response = await POST(
+      new Request("http://localhost/api/chat", {
+        method: "POST",
+        body: JSON.stringify({ prompt: "hello" }),
+      }),
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({ error: "rate rpc failed" });
+  });
+
   it("returns 500 when usage increment fails", async () => {
     const supabase = createSupabaseMock({
       fromResults: {

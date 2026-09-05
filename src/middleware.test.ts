@@ -67,16 +67,20 @@ describe("middleware", () => {
   it("allows authenticated access to /dashboard", async () => {
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://example.supabase.co");
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "anon");
-    createServerClientMock.mockReturnValue({
-      auth: {
-        getUser: vi.fn().mockResolvedValue({
-          data: { user: { id: "user-1" } },
-        }),
-      },
+    createServerClientMock.mockImplementation((_url, _key, options) => {
+      options.cookies.setAll([{ name: "sb", value: "refreshed", options: { path: "/" } }]);
+      return {
+        auth: {
+          getUser: vi.fn().mockResolvedValue({
+            data: { user: { id: "user-1" } },
+          }),
+        },
+      };
     });
 
     const response = await middleware(makeRequest("/dashboard"));
     expect(response.status).toBe(200);
+    expect(response.cookies.get("sb")?.value).toBe("refreshed");
   });
 
   it("exports a matcher config", () => {
