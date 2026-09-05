@@ -40,8 +40,10 @@ npm install
 2. Run the setup script to create products/prices and a sample `WELCOME20` promo code (20% off the first invoice):
 
 ```bash
-STRIPE_SECRET_KEY=sk_test_... node scripts/stripe-setup.mjs
+node scripts/stripe-setup.mjs
 ```
+
+The script reads `.env.local`. If `STRIPE_PRICE_PLUS` / `STRIPE_PRICE_PRO` are already set, it leaves those prices alone and only creates the promo code. On a first run it prints new price IDs to copy into `.env.local`.
 
 Create more coupons and promotion codes in Stripe Dashboard → Product catalog → Coupons. Customers enter the customer-facing code on `/pricing` (or open `/pricing?promo=WELCOME20`). Invalid codes stay on the pricing page; Stripe Checkout shows the discounted total.
 
