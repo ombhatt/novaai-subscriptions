@@ -41,6 +41,10 @@ describe("app pages", () => {
       </RootLayout>,
     );
     expect(screen.getByText("child")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Skip to content" })).toHaveAttribute(
+      "href",
+      "#main-content",
+    );
   });
 
   it("renders the home page hero", () => {

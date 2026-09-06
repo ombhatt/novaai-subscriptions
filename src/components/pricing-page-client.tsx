@@ -69,6 +69,8 @@ export function PricingPageClient() {
     <>
       {error && (
         <p
+          id="checkout-error"
+          role="alert"
           data-testid="checkout-error"
           className="mb-6 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
         >
@@ -86,8 +88,12 @@ export function PricingPageClient() {
           placeholder="WELCOME20"
           autoComplete="off"
           spellCheck={false}
+          aria-invalid={Boolean(error)}
+          aria-describedby={
+            error ? "promo-code-hint checkout-error" : "promo-code-hint"
+          }
         />
-        <p className="mt-1 text-xs text-muted-foreground">
+        <p id="promo-code-hint" className="mt-1 text-xs text-muted-foreground">
           Optional. The discount is applied on the Stripe checkout page.
         </p>
       </div>
