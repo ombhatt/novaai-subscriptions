@@ -22,12 +22,12 @@ export default defineConfig({
     },
     {
       name: "guest",
-      testMatch: /(?:^|\/)(public|auth|db)\.spec\.ts$/,
+      testMatch: /(?:^|\/)(public|auth|db|a11y)\.spec\.ts$/,
       use: { ...devices["Desktop Chrome"] },
     },
     {
       name: "authenticated",
-      testMatch: /(?:^|\/)(dashboard|checkout)\.spec\.ts$/,
+      testMatch: /(?:^|\/)(dashboard|checkout|a11y-dashboard)\.spec\.ts$/,
       dependencies: ["setup"],
       use: {
         ...devices["Desktop Chrome"],

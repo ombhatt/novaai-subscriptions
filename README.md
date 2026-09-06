@@ -154,6 +154,8 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
+Guest and authenticated Playwright runs include axe scans of home, pricing, login, signup, and the dashboard. The job fails if axe reports any violation.
+
 Requires the same `.env.local` as local development (Supabase URL and keys). Email confirmations must be **disabled** on the project used for E2E — local [`supabase/config.toml`](supabase/config.toml) already sets `enable_confirmations = false`.
 
 The default suite hits real Supabase Auth and mocks Stripe at `/api/checkout` and `/api/portal` (no hosted Checkout). Interactive mode:

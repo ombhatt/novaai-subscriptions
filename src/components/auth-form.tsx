@@ -93,35 +93,45 @@ export function AuthForm({ mode }: AuthFormProps) {
                 onChange={(e) => setFullName(e.target.value)}
                 placeholder="Alex Chen"
                 required
+                aria-invalid={Boolean(error)}
+                aria-describedby={error ? "auth-form-error" : undefined}
               />
             </div>
           )}
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
-            <Input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@company.com"
-              required
-            />
+              <Input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@company.com"
+                required
+                aria-invalid={Boolean(error)}
+                aria-describedby={error ? "auth-form-error" : undefined}
+              />
           </div>
           <div className="space-y-2">
             <Label htmlFor="password">Password</Label>
-            <Input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              minLength={8}
-              required
-            />
+              <Input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                minLength={8}
+                required
+                aria-invalid={Boolean(error)}
+                aria-describedby={error ? "auth-form-error" : undefined}
+              />
           </div>
 
           {error && (
-            <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <p
+              id="auth-form-error"
+              role="alert"
+              className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+            >
               {error}
             </p>
           )}

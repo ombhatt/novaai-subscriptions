@@ -41,6 +41,10 @@ describe("app pages", () => {
       </RootLayout>,
     );
     expect(screen.getByText("child")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Skip to content" })).toHaveAttribute(
+      "href",
+      "#main-content",
+    );
   });
 
   it("renders the home page hero", () => {
@@ -62,7 +66,9 @@ describe("app pages", () => {
     unmount();
 
     render(<SignupPage />);
-    expect(screen.getByText("Create your account")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Create your account" }),
+    ).toBeInTheDocument();
   });
 
   it("renders the dashboard heading", () => {

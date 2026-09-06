@@ -58,7 +58,7 @@ export function PricingCards({
               <ul className="space-y-3 text-sm">
                 {details.features.map((feature) => (
                   <li key={feature} className="flex items-start gap-2">
-                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
                     <span>{feature}</span>
                   </li>
                 ))}

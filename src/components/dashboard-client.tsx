@@ -125,8 +125,13 @@ export function DashboardClient() {
 
   if (loading) {
     return (
-      <div className="flex min-h-[40vh] items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div
+        role="status"
+        aria-live="polite"
+        className="flex min-h-[40vh] items-center justify-center"
+      >
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden />
+        <span className="sr-only">Loading dashboard</span>
       </div>
     );
   }
@@ -136,7 +141,7 @@ export function DashboardClient() {
       <Card className="border-destructive/50">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-destructive">
-            <AlertCircle className="h-5 w-5" />
+            <AlertCircle className="h-5 w-5" aria-hidden />
             Unable to load dashboard
           </CardTitle>
           <CardDescription>{error}</CardDescription>
@@ -156,8 +161,14 @@ export function DashboardClient() {
 
   return (
     <div className="space-y-6">
+      {error && (
+        <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
+        </p>
+      )}
       {inDunningGrace && graceEndsLabel && (
         <div
+          role="alert"
           data-testid="dunning-banner"
           className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm"
         >
@@ -193,7 +204,7 @@ export function DashboardClient() {
                 {data.usage.toLocaleString()} / {data.limit.toLocaleString()}
               </span>
             </div>
-            <Progress value={usagePercent} />
+            <Progress value={usagePercent} aria-label="Monthly usage" />
             <p className="mt-2 text-sm text-muted-foreground">
               {data.remaining.toLocaleString()} requests remaining this{" "}
               {data.subscription?.current_period_start ? "billing period" : "month"}
@@ -219,7 +230,7 @@ export function DashboardClient() {
                 onClick={openBillingPortal}
                 disabled={portalLoading}
               >
-                <CreditCard className="mr-2 h-4 w-4" />
+                <CreditCard className="mr-2 h-4 w-4" aria-hidden />
                 {portalLoading ? "Opening…" : "Manage billing"}
               </Button>
             )}
@@ -253,6 +264,8 @@ export function DashboardClient() {
 
           {chatReply && (
             <div
+              role="status"
+              aria-live="polite"
               data-testid="chat-reply"
               className="mt-4 rounded-lg border bg-muted/50 p-4 text-sm"
             >

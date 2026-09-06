@@ -134,6 +134,7 @@ describe("AuthForm", () => {
     await user.type(screen.getByLabelText("Password"), "password1");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
-    expect(await screen.findByText("Invalid login")).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Invalid login");
+    expect(screen.getByLabelText("Email")).toHaveAttribute("aria-invalid", "true");
   });
 });

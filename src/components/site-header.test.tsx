@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 const { pathnameMock } = vi.hoisted(() => ({
   pathnameMock: vi.fn(() => "/"),
@@ -14,12 +15,14 @@ vi.mock("next/link", () => ({
     children,
     href,
     className,
+    "aria-current": ariaCurrent,
   }: {
     children: React.ReactNode;
     href: string;
     className?: string;
+    "aria-current"?: "page";
   }) => (
-    <a href={href} className={className}>
+    <a href={href} className={className} aria-current={ariaCurrent}>
       {children}
     </a>
   ),
@@ -28,10 +31,12 @@ vi.mock("next/link", () => ({
 import { SiteHeader } from "@/components/site-header";
 
 describe("SiteHeader", () => {
-  it("renders brand and primary nav links", () => {
+  it("renders brand and primary nav links", async () => {
+    const user = userEvent.setup();
     pathnameMock.mockReturnValue("/");
     render(<SiteHeader />);
     expect(screen.getByText("NovaAI")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Open menu" }));
     expect(screen.getByRole("link", { name: "Pricing" })).toHaveAttribute(
       "href",
       "/pricing",
@@ -50,11 +55,14 @@ describe("SiteHeader", () => {
     );
   });
 
-  it("marks the current nav link", () => {
+  it("marks the current nav link", async () => {
+    const user = userEvent.setup();
     pathnameMock.mockReturnValue("/pricing");
     render(<SiteHeader />);
-    expect(screen.getByRole("link", { name: "Pricing" }).className).toMatch(
-      /text-foreground/,
+    await user.click(screen.getByRole("button", { name: "Open menu" }));
+    expect(screen.getByRole("link", { name: "Pricing" })).toHaveAttribute(
+      "aria-current",
+      "page",
     );
   });
 });
