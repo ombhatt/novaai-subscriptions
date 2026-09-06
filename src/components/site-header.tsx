@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -14,11 +14,8 @@ const navLinks = [
 
 export function SiteHeader() {
   const pathname = usePathname();
-  const [menuOpen, setMenuOpen] = useState(false);
-
-  useEffect(() => {
-    setMenuOpen(false);
-  }, [pathname]);
+  const [menuOpenFor, setMenuOpenFor] = useState<string | null>(null);
+  const menuOpen = menuOpenFor === pathname;
 
   return (
     <header className="border-b bg-background/80 backdrop-blur-sm sticky top-0 z-50">
@@ -63,7 +60,9 @@ export function SiteHeader() {
             className="sm:hidden"
             aria-expanded={menuOpen}
             aria-controls="primary-navigation"
-            onClick={() => setMenuOpen((open) => !open)}
+            onClick={() =>
+              setMenuOpenFor((current) => (current === pathname ? null : pathname))
+            }
           >
             {menuOpen ? "Close menu" : "Open menu"}
           </Button>
