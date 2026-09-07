@@ -125,7 +125,8 @@ describe("handleStripeWebhookEvent", () => {
     ).rejects.toThrow(/missing user_id, customer, or subscription/);
 
     const release = supabase.builders.stripe_webhook_events.builder;
-    expect(release.delete).toHaveBeenCalledOnce();
+    expect(supabase.from).toHaveBeenNthCalledWith(2, "stripe_webhook_events");
+    expect(release.delete).toHaveBeenCalledWith();
     expect(release.eq).toHaveBeenCalledWith("id", "evt_checkout.session.completed");
   });
 
