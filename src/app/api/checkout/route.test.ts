@@ -57,6 +57,23 @@ describe("POST /api/checkout", () => {
     expect(response.status).toBe(401);
   });
 
+  it("rejects enterprise checkout", async () => {
+    isStripeConfiguredMock.mockReturnValue(true);
+    createClientMock.mockResolvedValue(createSupabaseMock());
+
+    const response = await POST(
+      new Request("http://localhost/api/checkout", {
+        method: "POST",
+        body: JSON.stringify({ tier: "enterprise" }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Invalid tier for checkout.",
+    });
+  });
+
   it("rejects free tier checkout", async () => {
     isStripeConfiguredMock.mockReturnValue(true);
     createClientMock.mockResolvedValue(createSupabaseMock());

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 import { createClient } from "@/lib/supabase/server";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
-import type { Tier } from "@/lib/tiers";
+import { isCheckoutTier, type Tier } from "@/lib/tiers";
 
 function isStripeInvalidRequestError(
   error: unknown,
@@ -37,7 +37,7 @@ export async function POST(request: Request) {
     promoCode?: string;
   };
 
-  if (!tier || tier === "free") {
+  if (!isCheckoutTier(tier)) {
     return NextResponse.json({ error: "Invalid tier for checkout." }, { status: 400 });
   }
 

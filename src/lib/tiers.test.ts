@@ -1,14 +1,15 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import {
   TIER_LIMITS,
+  isCheckoutTier,
   isPaidTier,
   tierFromStripePriceId,
   type Tier,
 } from "@/lib/tiers";
 
 describe("TIER_LIMITS", () => {
-  it("defines free, plus, and pro tiers", () => {
-    expect(Object.keys(TIER_LIMITS)).toEqual(["free", "plus", "pro"]);
+  it("defines free, plus, pro, and enterprise tiers", () => {
+    expect(Object.keys(TIER_LIMITS)).toEqual(["free", "plus", "pro", "enterprise"]);
   });
 
   it("gives higher request limits for higher tiers", () => {
@@ -20,10 +21,11 @@ describe("TIER_LIMITS", () => {
     );
   });
 
-  it("prices free at $0, plus at $20, pro at $99", () => {
+  it("prices free at $0, plus at $20, pro at $99, and enterprise as custom", () => {
     expect(TIER_LIMITS.free.priceMonthly).toBe(0);
     expect(TIER_LIMITS.plus.priceMonthly).toBe(20);
     expect(TIER_LIMITS.pro.priceMonthly).toBe(99);
+    expect(TIER_LIMITS.enterprise.priceMonthly).toBeNull();
   });
 
   it("expands model access by tier", () => {
@@ -49,6 +51,19 @@ describe("isPaidTier", () => {
   it("returns true for plus and pro", () => {
     expect(isPaidTier("plus")).toBe(true);
     expect(isPaidTier("pro")).toBe(true);
+  });
+
+  it("returns false for enterprise", () => {
+    expect(isPaidTier("enterprise")).toBe(false);
+  });
+});
+
+describe("isCheckoutTier", () => {
+  it("allows only plus and pro through Stripe Checkout", () => {
+    expect(isCheckoutTier("plus")).toBe(true);
+    expect(isCheckoutTier("pro")).toBe(true);
+    expect(isCheckoutTier("free")).toBe(false);
+    expect(isCheckoutTier("enterprise")).toBe(false);
   });
 });
 

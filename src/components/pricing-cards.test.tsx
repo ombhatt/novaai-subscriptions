@@ -4,16 +4,19 @@ import userEvent from "@testing-library/user-event";
 import { PricingCards } from "@/components/pricing-cards";
 
 describe("PricingCards", () => {
-  it("renders all three tiers with prices", () => {
+  it("renders self-serve tiers and an enterprise sales card", () => {
     render(<PricingCards />);
 
     expect(screen.getByText("Free")).toBeInTheDocument();
     expect(screen.getByText("Plus")).toBeInTheDocument();
     expect(screen.getByText("Pro")).toBeInTheDocument();
+    expect(screen.getByText("Enterprise")).toBeInTheDocument();
     expect(screen.getByText("$0")).toBeInTheDocument();
     expect(screen.getByText("$20")).toBeInTheDocument();
     expect(screen.getByText("$99")).toBeInTheDocument();
+    expect(screen.getByText("Custom")).toBeInTheDocument();
     expect(screen.getByText("Most popular")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Contact sales" })).toBeInTheDocument();
   });
 
   it("marks the current tier", () => {
@@ -32,6 +35,9 @@ describe("PricingCards", () => {
 
     await user.click(screen.getByRole("button", { name: "Upgrade to Pro" }));
     expect(onSelectTier).toHaveBeenCalledWith("pro");
+
+    await user.click(screen.getByRole("button", { name: "Contact sales" }));
+    expect(onSelectTier).toHaveBeenCalledWith("enterprise");
   });
 
   it("shows redirecting state for loading tier", () => {

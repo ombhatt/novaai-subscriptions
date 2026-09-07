@@ -16,7 +16,6 @@ export function createQueryBuilder(result: QueryResult = { data: null, error: nu
 
   for (const method of [
     "select",
-    "insert",
     "delete",
     "eq",
     "neq",
@@ -33,6 +32,12 @@ export function createQueryBuilder(result: QueryResult = { data: null, error: nu
     builder[method] = chain;
   }
 
+  builder.insert = vi.fn((payload?: unknown) => {
+    if (payload !== undefined) {
+      builder.lastInsert = payload;
+    }
+    return builder;
+  });
   builder.update = vi.fn((payload?: unknown) => {
     if (payload && typeof payload === "object") {
       builder.lastUpdate = payload;

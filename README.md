@@ -1,6 +1,6 @@
 # NovaAI Subscription MVP
 
-Subscription management service for an AI company with three fixed-price tiers: **Free**, **Plus**, and **Pro**. Built with **Supabase** (auth, Postgres, Edge Functions) and **Stripe** (billing).
+Subscription management service for an AI company with three self-serve tiers: **Free**, **Plus**, and **Pro**, plus an **Enterprise** contact-sales option. Built with **Supabase** (auth, Postgres, Edge Functions) and **Stripe** (billing).
 
 ## Stack (Option C)
 
@@ -19,6 +19,7 @@ Subscription management service for an AI company with three fixed-price tiers: 
 | Free | $0 | 1,000 | 10/min | basic |
 | Plus | $20 | 50,000 | 100/min | basic, standard |
 | Pro | $99 | 500,000 | 1,000/min | all + priority |
+| Enterprise | Custom | Negotiated | Negotiated | Contact sales |
 
 ## Quick start
 
@@ -116,6 +117,7 @@ supabase/
 | `/api/portal` | POST | Open Stripe billing portal |
 | `/api/chat` | POST | Mock AI request with entitlement enforcement |
 | `/api/cron/dunning` | GET/POST | Cancel Stripe subscriptions whose 7-day grace has elapsed (`Authorization: Bearer $CRON_SECRET`) |
+| `/api/sales-inquiry` | POST | Record an Enterprise sales lead (`{ email, company?, note?, promoCode? }`) |
 
 ## Tests
 
@@ -141,7 +143,7 @@ npm run audit
 
 These Vitest cases talk to the configured Supabase project (same keys as `.env.local`). They are skipped when those keys are missing.
 
-Apply migrations first (`supabase db push`, or run the SQL in the dashboard), including `supabase/migrations/20260902120000_restrict_increment_usage.sql`, `supabase/migrations/20260903140000_increment_usage_period_start.sql`, and `supabase/migrations/20260904120000_dunning_grace_period.sql`.
+Apply migrations first (`supabase db push`, or run the SQL in the dashboard), including `supabase/migrations/20260902120000_restrict_increment_usage.sql`, `supabase/migrations/20260903140000_increment_usage_period_start.sql`, `supabase/migrations/20260904120000_dunning_grace_period.sql`, and `supabase/migrations/20260907180000_sales_inquiries.sql`.
 
 ```bash
 npm run test:db
@@ -197,7 +199,7 @@ On Vercel, [`vercel.json`](vercel.json) schedules `GET /api/cron/dunning` daily 
 
 - Sign up / sign in (Supabase Auth)
 - Auto-created Free subscription on registration
-- Pricing page with Stripe Checkout for Plus/Pro and optional promo codes
+- Pricing page with Stripe Checkout for Plus/Pro, optional promo codes, and an Enterprise sales inquiry
 - Dashboard with usage meter and billing portal link
 - Webhook sync (idempotent) for subscription lifecycle
 - 7-day dunning grace after payment failure, then cancel and drop to Free
