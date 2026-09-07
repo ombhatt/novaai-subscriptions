@@ -1,0 +1,12 @@
+---
+description: GitHub is the source of truth for remotes, PRs, and CI
+alwaysApply: true
+---
+
+# GitHub is the remote of record
+
+- `origin` is `https://github.com/ombhatt/novaai-subscriptions.git`. Push, pull, and set upstreams there.
+- The Cursor Origin remote is `cursor` (`origin.cursor.com`). Do not push to it, create Origin PRs, or run `origin pr` unless the user explicitly asks.
+- Open and merge pull requests with `gh` against `ombhatt/novaai-subscriptions`.
+- CI that matters for merge is GitHub Actions (`lint`, `test`, `audit`). Depot / `.depot/workflows` is Origin-only leftover.
+- Do not rewrite remotes or delete the Origin repo unless the user asks.
