@@ -79,6 +79,12 @@ async function recordEvent(eventId: string, eventType: string): Promise<boolean>
   return true;
 }
 
+async function releaseEvent(eventId: string): Promise<void> {
+  const { error } = await supabase.from("stripe_webhook_events").delete().eq("id", eventId);
+
+  if (error) throw new Error(`Failed to release webhook event: ${error.message}`);
+}
+
 async function findUserId(customerId: string): Promise<string | null> {
   const { data, error } = await supabase
     .from("subscriptions")
@@ -155,10 +161,7 @@ async function downgradeToFree(userId: string, customerId?: string) {
   if (error) throw new Error(error.message);
 }
 
-async function handleEvent(event: Stripe.Event) {
-  const isNew = await recordEvent(event.id, event.type);
-  if (!isNew) return;
-
+async function processEvent(event: Stripe.Event) {
   switch (event.type) {
     case "checkout.session.completed": {
       const session = event.data.object as Stripe.Checkout.Session;
@@ -274,6 +277,22 @@ async function handleEvent(event: Stripe.Event) {
       if (error) throw new Error(error.message);
       break;
     }
+  }
+}
+
+async function handleEvent(event: Stripe.Event) {
+  const isNew = await recordEvent(event.id, event.type);
+  if (!isNew) return;
+
+  try {
+    await processEvent(event);
+  } catch (error) {
+    try {
+      await releaseEvent(event.id);
+    } catch (releaseError) {
+      console.error(releaseError);
+    }
+    throw error;
   }
 }
 

@@ -106,7 +106,7 @@ describe("handleStripeWebhookEvent", () => {
     expect(supabase.from).toHaveBeenCalledWith("subscriptions");
   });
 
-  it("throws when checkout session is missing required fields", async () => {
+  it("releases a failed event so Stripe can retry it", async () => {
     const supabase = createSupabaseMock({
       fromResults: {
         stripe_webhook_events: { data: null, error: null },
@@ -123,6 +123,10 @@ describe("handleStripeWebhookEvent", () => {
         }),
       ),
     ).rejects.toThrow(/missing user_id, customer, or subscription/);
+
+    const release = supabase.builders.stripe_webhook_events.builder;
+    expect(release.delete).toHaveBeenCalledOnce();
+    expect(release.eq).toHaveBeenCalledWith("id", "evt_checkout.session.completed");
   });
 
   it("downgrades to free on customer.subscription.deleted", async () => {
