@@ -29,7 +29,7 @@ test.describe("public pages", () => {
     await expect(page.getByText("$0")).toBeVisible();
     await expect(page.getByText("$20")).toBeVisible();
     await expect(page.getByText("$99")).toBeVisible();
-    await expect(page.getByText("Custom")).toBeVisible();
+    await expect(page.getByText("Custom", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Included" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Upgrade to Plus" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Upgrade to Pro" })).toBeVisible();
