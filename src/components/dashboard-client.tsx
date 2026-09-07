@@ -193,7 +193,8 @@ export function DashboardClient() {
             </Badge>
           </CardTitle>
           <CardDescription data-testid="dashboard-plan">
-            You are on the {tierDetails.label} plan (${tierDetails.priceMonthly}/mo)
+            You are on the {tierDetails.label} plan
+            {tierDetails.priceMonthly != null ? ` ($${tierDetails.priceMonthly}/mo)` : ""}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

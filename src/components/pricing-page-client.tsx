@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { EnterpriseInquiryForm } from "@/components/enterprise-inquiry-form";
 import { PricingCards } from "@/components/pricing-cards";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,6 +15,8 @@ export function PricingPageClient() {
   const [loadingTier, setLoadingTier] = useState<Tier | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [promoCode, setPromoCode] = useState(() => searchParams.get("promo") ?? "");
+  const [showInquiry, setShowInquiry] = useState(false);
+  const [inquiryEmail, setInquiryEmail] = useState("");
 
   useEffect(() => {
     fetch("/api/subscription")
@@ -26,6 +29,22 @@ export function PricingPageClient() {
 
   async function handleSelectTier(tier: Tier) {
     setError(null);
+
+    if (tier === "enterprise") {
+      setLoadingTier(null);
+      try {
+        const meResponse = await fetch("/api/me");
+        const me = (await meResponse.json()) as {
+          user?: { email?: string | null } | null;
+        };
+        setInquiryEmail(me.user?.email ?? "");
+      } catch {
+        setInquiryEmail("");
+      }
+      setShowInquiry(true);
+      return;
+    }
+
     setLoadingTier(tier);
 
     const trimmedPromo = promoCode.trim();
@@ -102,6 +121,15 @@ export function PricingPageClient() {
         onSelectTier={handleSelectTier}
         loadingTier={loadingTier}
       />
+      {showInquiry && (
+        <div className="mt-10">
+          <EnterpriseInquiryForm
+            key={inquiryEmail}
+            initialEmail={inquiryEmail}
+            promoCode={promoCode}
+          />
+        </div>
+      )}
     </>
   );
 }

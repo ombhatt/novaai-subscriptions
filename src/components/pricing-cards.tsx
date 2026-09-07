@@ -19,7 +19,7 @@ interface PricingCardsProps {
   loadingTier?: Tier | null;
 }
 
-const tierOrder: Tier[] = ["free", "plus", "pro"];
+const tierOrder: Tier[] = ["free", "plus", "pro", "enterprise"];
 
 export function PricingCards({
   currentTier = "free",
@@ -27,11 +27,12 @@ export function PricingCards({
   loadingTier = null,
 }: PricingCardsProps) {
   return (
-    <div className="grid gap-6 md:grid-cols-3">
+    <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
       {tierOrder.map((tier) => {
         const details = TIER_LIMITS[tier];
         const isCurrent = currentTier === tier;
         const isPopular = tier === "plus";
+        const isEnterprise = tier === "enterprise";
 
         return (
           <Card
@@ -48,10 +49,16 @@ export function PricingCards({
               </CardTitle>
               <CardDescription>{details.description}</CardDescription>
               <div className="pt-2">
-                <span className="text-4xl font-bold tracking-tight">
-                  ${details.priceMonthly}
-                </span>
-                <span className="text-muted-foreground">/month</span>
+                {details.priceMonthly == null ? (
+                  <span className="text-4xl font-bold tracking-tight">Custom</span>
+                ) : (
+                  <>
+                    <span className="text-4xl font-bold tracking-tight">
+                      ${details.priceMonthly}
+                    </span>
+                    <span className="text-muted-foreground">/month</span>
+                  </>
+                )}
               </div>
             </CardHeader>
             <CardContent className="flex-1">
@@ -68,6 +75,14 @@ export function PricingCards({
               {tier === "free" ? (
                 <Button className="w-full" variant="outline" disabled={isCurrent}>
                   {isCurrent ? "Included" : "Default plan"}
+                </Button>
+              ) : isEnterprise ? (
+                <Button
+                  className="w-full"
+                  variant="outline"
+                  onClick={() => onSelectTier?.(tier)}
+                >
+                  Contact sales
                 </Button>
               ) : (
                 <Button

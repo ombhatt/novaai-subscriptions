@@ -183,4 +183,31 @@ describe("PricingPageClient", () => {
       });
     });
   });
+
+  it("opens the enterprise inquiry form instead of checkout or signup", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.spyOn(global, "fetch").mockImplementation((input) => {
+      const url = String(input);
+      if (url.includes("/api/subscription")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ tier: "free" }), { status: 200 }),
+        );
+      }
+      if (url.includes("/api/me")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ user: null }), { status: 200 }),
+        );
+      }
+      return Promise.reject(new Error(`unexpected fetch: ${url}`));
+    });
+
+    render(<PricingPageClient />);
+    await user.click(screen.getByRole("button", { name: "Contact sales" }));
+
+    expect(await screen.findByTestId("enterprise-inquiry-form")).toBeInTheDocument();
+    expect(pushMock).not.toHaveBeenCalled();
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).includes("/api/checkout")),
+    ).toBe(false);
+  });
 });

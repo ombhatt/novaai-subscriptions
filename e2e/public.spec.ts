@@ -20,7 +20,7 @@ test.describe("public pages", () => {
     );
   });
 
-  test("pricing page lists Free, Plus, and Pro", async ({ page }) => {
+  test("pricing page lists Free, Plus, Pro, and Enterprise", async ({ page }) => {
     await page.goto("/pricing");
 
     await expect(
@@ -29,9 +29,18 @@ test.describe("public pages", () => {
     await expect(page.getByText("$0")).toBeVisible();
     await expect(page.getByText("$20")).toBeVisible();
     await expect(page.getByText("$99")).toBeVisible();
+    await expect(page.getByText("Custom", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Included" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Upgrade to Plus" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Upgrade to Pro" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Contact sales" })).toBeVisible();
+  });
+
+  test("enterprise contact sales opens an inquiry form", async ({ page }) => {
+    await page.goto("/pricing");
+    await page.getByRole("button", { name: "Contact sales" }).click();
+    await expect(page.getByTestId("enterprise-inquiry-form")).toBeVisible();
+    await expect(page).toHaveURL(/\/pricing/);
   });
 
   test("pricing page prefills promo from the query string", async ({ page }) => {

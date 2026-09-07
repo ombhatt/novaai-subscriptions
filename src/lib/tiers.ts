@@ -1,4 +1,5 @@
-export type Tier = "free" | "plus" | "pro";
+export type Tier = "free" | "plus" | "pro" | "enterprise";
+export type CheckoutTier = "plus" | "pro";
 
 export type SubscriptionStatus =
   | "active"
@@ -12,7 +13,7 @@ export interface TierLimits {
   rateLimitPerMinute: number;
   models: string[];
   label: string;
-  priceMonthly: number;
+  priceMonthly: number | null;
   description: string;
   features: string[];
 }
@@ -60,6 +61,20 @@ export const TIER_LIMITS: Record<Tier, TierLimits> = {
       "Priority support",
     ],
   },
+  enterprise: {
+    label: "Enterprise",
+    priceMonthly: null,
+    description: "Custom packaging for procurement, invoicing, and dedicated support",
+    requestsPerMonth: 0,
+    rateLimitPerMinute: 0,
+    models: ["basic", "standard", "advanced"],
+    features: [
+      "Custom request volume and rate limits",
+      "Invoicing and procurement support",
+      "Dedicated onboarding and support",
+      "Security review on request",
+    ],
+  },
 };
 
 export function tierFromStripePriceId(priceId: string | null | undefined): Tier {
@@ -75,5 +90,9 @@ export function tierFromStripePriceId(priceId: string | null | undefined): Tier 
 }
 
 export function isPaidTier(tier: Tier): boolean {
+  return tier === "plus" || tier === "pro";
+}
+
+export function isCheckoutTier(tier: string | undefined): tier is CheckoutTier {
   return tier === "plus" || tier === "pro";
 }
