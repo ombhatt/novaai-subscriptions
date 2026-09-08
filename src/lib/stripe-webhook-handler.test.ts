@@ -153,6 +153,31 @@ describe("handleStripeWebhookEvent", () => {
     );
   });
 
+  it("preserves paid access when Stripe cancels during dunning grace", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-04T12:00:00.000Z"));
+    const supabase = createSupabaseMock({
+      fromResults: {
+        stripe_webhook_events: { data: null, error: null },
+        subscriptions: {
+          data: {
+            user_id: "user-1",
+            status: "past_due",
+            grace_period_ends_at: "2026-09-11T12:00:00.000Z",
+          },
+          error: null,
+        },
+      },
+    });
+    createAdminClientMock.mockReturnValue(supabase);
+
+    await handleStripeWebhookEvent(
+      makeEvent("customer.subscription.deleted", makeStripeSubscription()),
+    );
+
+    expect(supabase.builders.subscriptions.builder.lastUpdate).toBeUndefined();
+  });
+
   it("marks subscription past_due on invoice.payment_failed", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-04T12:00:00.000Z"));
