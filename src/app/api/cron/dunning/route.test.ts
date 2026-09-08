@@ -1,13 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createSupabaseMock } from "@/test/mocks/supabase";
 
-const { createAdminClientMock, getStripeMock, downgradeToFreeMock } = vi.hoisted(
-  () => ({
+const {
+  createAdminClientMock,
+  getStripeMock,
+  downgradeToFreeMock,
+  upsertSubscriptionFromStripeMock,
+} = vi.hoisted(() => ({
     createAdminClientMock: vi.fn(),
     getStripeMock: vi.fn(),
     downgradeToFreeMock: vi.fn(),
-  }),
-);
+    upsertSubscriptionFromStripeMock: vi.fn(),
+  }));
 
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: createAdminClientMock,
@@ -19,6 +23,7 @@ vi.mock("@/lib/stripe", () => ({
 
 vi.mock("@/lib/stripe-webhook-handler", () => ({
   downgradeToFree: downgradeToFreeMock,
+  upsertSubscriptionFromStripe: upsertSubscriptionFromStripeMock,
 }));
 
 import { cancelExpiredDunningSubscriptions } from "@/lib/dunning-cron";
@@ -28,6 +33,7 @@ describe("cancelExpiredDunningSubscriptions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     downgradeToFreeMock.mockResolvedValue(undefined);
+    upsertSubscriptionFromStripeMock.mockResolvedValue(undefined);
   });
 
   it("cancels Stripe subscriptions whose grace has elapsed", async () => {
@@ -46,8 +52,13 @@ describe("cancelExpiredDunningSubscriptions", () => {
       },
     });
     createAdminClientMock.mockReturnValue(supabase);
+    const retrieve = vi.fn().mockResolvedValue({
+      id: "sub_expired",
+      status: "past_due",
+      customer: "cus_1",
+    });
     const cancel = vi.fn().mockResolvedValue({ id: "sub_expired" });
-    getStripeMock.mockReturnValue({ subscriptions: { cancel } });
+    getStripeMock.mockReturnValue({ subscriptions: { retrieve, cancel } });
 
     const result = await cancelExpiredDunningSubscriptions(
       new Date("2026-09-12T00:00:00.000Z"),
@@ -65,8 +76,9 @@ describe("cancelExpiredDunningSubscriptions", () => {
       },
     });
     createAdminClientMock.mockReturnValue(supabase);
+    const retrieve = vi.fn();
     const cancel = vi.fn();
-    getStripeMock.mockReturnValue({ subscriptions: { cancel } });
+    getStripeMock.mockReturnValue({ subscriptions: { retrieve, cancel } });
 
     const result = await cancelExpiredDunningSubscriptions();
 
@@ -105,7 +117,8 @@ describe("cancelExpiredDunningSubscriptions", () => {
     createAdminClientMock.mockReturnValue(supabase);
     getStripeMock.mockReturnValue({
       subscriptions: {
-        cancel: vi.fn().mockRejectedValue(new Error("No such subscription")),
+        retrieve: vi.fn().mockRejectedValue(new Error("No such subscription")),
+        cancel: vi.fn(),
       },
     });
 
@@ -133,6 +146,11 @@ describe("cancelExpiredDunningSubscriptions", () => {
     createAdminClientMock.mockReturnValue(supabase);
     getStripeMock.mockReturnValue({
       subscriptions: {
+        retrieve: vi.fn().mockResolvedValue({
+          id: "sub_fail",
+          status: "past_due",
+          customer: "cus_1",
+        }),
         cancel: vi.fn().mockRejectedValue(new Error("card network down")),
       },
     });
@@ -160,12 +178,57 @@ describe("cancelExpiredDunningSubscriptions", () => {
     });
     createAdminClientMock.mockReturnValue(supabase);
     getStripeMock.mockReturnValue({
-      subscriptions: { cancel: vi.fn().mockRejectedValue("hard fail") },
+      subscriptions: {
+        retrieve: vi.fn().mockResolvedValue({
+          id: "sub_boom",
+          status: "past_due",
+          customer: "cus_1",
+        }),
+        cancel: vi.fn().mockRejectedValue("hard fail"),
+      },
     });
 
     const result = await cancelExpiredDunningSubscriptions();
 
     expect(result.errors[0]).toMatch(/sub_boom: Unknown dunning error/);
+  });
+
+  it("reconciles a recovered Stripe subscription instead of canceling it", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        subscriptions: {
+          data: [
+            {
+              user_id: "user-1",
+              stripe_customer_id: "cus_1",
+              stripe_subscription_id: "sub_recovered",
+            },
+          ],
+          error: null,
+        },
+      },
+    });
+    createAdminClientMock.mockReturnValue(supabase);
+    const subscription = {
+      id: "sub_recovered",
+      status: "active",
+      customer: "cus_1",
+    };
+    const retrieve = vi.fn().mockResolvedValue(subscription);
+    const cancel = vi.fn();
+    getStripeMock.mockReturnValue({ subscriptions: { retrieve, cancel } });
+
+    const result = await cancelExpiredDunningSubscriptions();
+
+    expect(retrieve).toHaveBeenCalledWith("sub_recovered");
+    expect(cancel).not.toHaveBeenCalled();
+    expect(downgradeToFreeMock).not.toHaveBeenCalled();
+    expect(upsertSubscriptionFromStripeMock).toHaveBeenCalledWith(
+      "user-1",
+      "cus_1",
+      subscription,
+    );
+    expect(result).toEqual({ canceled: 0, failed: 0, errors: [] });
   });
 });
 
@@ -193,7 +256,9 @@ describe("GET/POST /api/cron/dunning", () => {
       },
     });
     createAdminClientMock.mockReturnValue(supabase);
-    getStripeMock.mockReturnValue({ subscriptions: { cancel: vi.fn() } });
+    getStripeMock.mockReturnValue({
+      subscriptions: { retrieve: vi.fn(), cancel: vi.fn() },
+    });
 
     const response = await GET(
       new Request("http://localhost/api/cron/dunning", {

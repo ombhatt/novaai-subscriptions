@@ -82,7 +82,7 @@ async function existingGracePeriodEndsAt(userId: string): Promise<string | null>
   return data?.grace_period_ends_at ?? null;
 }
 
-async function upsertSubscriptionFromStripe(
+export async function upsertSubscriptionFromStripe(
   userId: string,
   customerId: string,
   subscription: Stripe.Subscription,
