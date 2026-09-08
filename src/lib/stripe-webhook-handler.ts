@@ -42,6 +42,15 @@ async function recordWebhookEvent(eventId: string, eventType: string): Promise<b
   return true;
 }
 
+async function releaseWebhookEvent(eventId: string): Promise<void> {
+  const supabase = createAdminClient();
+  const { error } = await supabase.from("stripe_webhook_events").delete().eq("id", eventId);
+
+  if (error) {
+    throw new Error(`Failed to release webhook event: ${error.message}`);
+  }
+}
+
 async function findUserIdByCustomerId(customerId: string): Promise<string | null> {
   const supabase = createAdminClient();
 
@@ -136,12 +145,7 @@ export async function downgradeToFree(userId: string, customerId?: string) {
   }
 }
 
-export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<void> {
-  const isNew = await recordWebhookEvent(event.id, event.type);
-  if (!isNew) {
-    return;
-  }
-
+async function processStripeWebhookEvent(event: Stripe.Event): Promise<void> {
   switch (event.type) {
     case "checkout.session.completed": {
       const session = event.data.object as Stripe.Checkout.Session;
@@ -266,5 +270,23 @@ export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<voi
 
     default:
       break;
+  }
+}
+
+export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<void> {
+  const isNew = await recordWebhookEvent(event.id, event.type);
+  if (!isNew) {
+    return;
+  }
+
+  try {
+    await processStripeWebhookEvent(event);
+  } catch (error) {
+    try {
+      await releaseWebhookEvent(event.id);
+    } catch (releaseError) {
+      console.error(releaseError);
+    }
+    throw error;
   }
 }
