@@ -1,4 +1,8 @@
-import { downgradeToFree } from "@/lib/stripe-webhook-handler";
+import type Stripe from "stripe";
+import {
+  downgradeToFree,
+  upsertSubscriptionFromStripe,
+} from "@/lib/stripe-webhook-handler";
 import { getStripe } from "@/lib/stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -34,6 +38,40 @@ export async function cancelExpiredDunningSubscriptions(
   for (const row of rows ?? []) {
     const subscriptionId = row.stripe_subscription_id as string;
     try {
+      let subscription: Stripe.Subscription;
+      try {
+        subscription = await stripe.subscriptions.retrieve(subscriptionId);
+      } catch (error) {
+        if (isAlreadyCanceledError(error)) {
+          await downgradeToFree(
+            row.user_id as string,
+            (row.stripe_customer_id as string | null) ?? undefined,
+          );
+          result.canceled += 1;
+          continue;
+        }
+        throw error;
+      }
+
+      if (subscription.status !== "past_due" && subscription.status !== "unpaid") {
+        const customerId =
+          typeof subscription.customer === "string"
+            ? subscription.customer
+            : subscription.customer.id;
+
+        if (subscription.status === "canceled") {
+          await downgradeToFree(row.user_id as string, customerId);
+          result.canceled += 1;
+        } else {
+          await upsertSubscriptionFromStripe(
+            row.user_id as string,
+            customerId,
+            subscription,
+          );
+        }
+        continue;
+      }
+
       try {
         await stripe.subscriptions.cancel(subscriptionId);
       } catch (error) {

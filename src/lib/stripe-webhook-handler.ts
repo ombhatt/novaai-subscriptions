@@ -1,5 +1,5 @@
 import type Stripe from "stripe";
-import { nextGracePeriodEndsAt } from "@/lib/dunning";
+import { isWithinDunningGrace, nextGracePeriodEndsAt } from "@/lib/dunning";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   getInvoiceSubscriptionId,
@@ -82,7 +82,7 @@ async function existingGracePeriodEndsAt(userId: string): Promise<string | null>
   return data?.grace_period_ends_at ?? null;
 }
 
-async function upsertSubscriptionFromStripe(
+export async function upsertSubscriptionFromStripe(
   userId: string,
   customerId: string,
   subscription: Stripe.Subscription,
@@ -124,6 +124,19 @@ async function upsertSubscriptionFromStripe(
 
 export async function downgradeToFree(userId: string, customerId?: string) {
   const supabase = createAdminClient();
+  const { data: subscription, error: lookupError } = await supabase
+    .from("subscriptions")
+    .select("status, grace_period_ends_at")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (lookupError) {
+    throw new Error(`Failed to check dunning grace: ${lookupError.message}`);
+  }
+
+  if (isWithinDunningGrace(subscription)) {
+    return;
+  }
 
   const { error } = await supabase
     .from("subscriptions")

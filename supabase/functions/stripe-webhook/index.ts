@@ -68,6 +68,20 @@ function nextGracePeriodEndsAt(
   return existing ?? null;
 }
 
+function isWithinDunningGrace(
+  subscription: {
+    status: SubscriptionStatus;
+    grace_period_ends_at: string | null;
+  } | null,
+  now = new Date(),
+): boolean {
+  return (
+    subscription?.status === "past_due" &&
+    Boolean(subscription.grace_period_ends_at) &&
+    new Date(subscription.grace_period_ends_at as string).getTime() > now.getTime()
+  );
+}
+
 async function recordEvent(eventId: string, eventType: string): Promise<boolean> {
   const { error } = await supabase.from("stripe_webhook_events").insert({
     id: eventId,
@@ -143,6 +157,15 @@ async function upsertSubscription(
 }
 
 async function downgradeToFree(userId: string, customerId?: string) {
+  const { data: subscription, error: lookupError } = await supabase
+    .from("subscriptions")
+    .select("status, grace_period_ends_at")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (lookupError) throw new Error(lookupError.message);
+  if (isWithinDunningGrace(subscription)) return;
+
   const { error } = await supabase
     .from("subscriptions")
     .update({
