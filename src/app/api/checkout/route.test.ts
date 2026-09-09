@@ -132,6 +132,50 @@ describe("POST /api/checkout", () => {
     expect(createSession.mock.calls[0]?.[0]).not.toHaveProperty("discounts");
   });
 
+  it("sends existing subscribers to the billing portal instead of creating another subscription", async () => {
+    isStripeConfiguredMock.mockReturnValue(true);
+    createClientMock.mockResolvedValue(
+      createSupabaseMock({
+        fromResults: {
+          subscriptions: {
+            data: makeSubscription({
+              stripe_customer_id: "cus_existing",
+              stripe_subscription_id: "sub_existing",
+              tier: "plus",
+            }),
+            error: null,
+          },
+        },
+      }),
+    );
+
+    const createPortal = vi.fn().mockResolvedValue({
+      url: "https://billing.stripe.com/session/test",
+    });
+    const createCheckout = vi.fn();
+    getStripeMock.mockReturnValue({
+      billingPortal: { sessions: { create: createPortal } },
+      checkout: { sessions: { create: createCheckout } },
+    });
+
+    const response = await POST(
+      new Request("http://localhost/api/checkout", {
+        method: "POST",
+        body: JSON.stringify({ tier: "pro" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      url: "https://billing.stripe.com/session/test",
+    });
+    expect(createPortal).toHaveBeenCalledWith({
+      customer: "cus_existing",
+      return_url: "http://localhost:43123/dashboard",
+    });
+    expect(createCheckout).not.toHaveBeenCalled();
+  });
+
   it("ignores blank promo codes", async () => {
     isStripeConfiguredMock.mockReturnValue(true);
     createClientMock.mockResolvedValue(
