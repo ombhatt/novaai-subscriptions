@@ -13,6 +13,7 @@ function mapStripeStatus(status: Stripe.Subscription.Status): SubscriptionStatus
     case "active":
       return "active";
     case "past_due":
+    case "unpaid":
       return "past_due";
     case "canceled":
       return "canceled";
