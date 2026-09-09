@@ -53,12 +53,20 @@ export async function POST(request: Request) {
 
   const { data: subscription } = await supabase
     .from("subscriptions")
-    .select("stripe_customer_id")
+    .select("stripe_customer_id, stripe_subscription_id")
     .eq("user_id", user.id)
     .maybeSingle();
 
   const stripe = getStripe();
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:43123";
+
+  if (subscription?.stripe_customer_id && subscription.stripe_subscription_id) {
+    const portalSession = await stripe.billingPortal.sessions.create({
+      customer: subscription.stripe_customer_id,
+      return_url: `${appUrl}/dashboard`,
+    });
+    return NextResponse.json({ url: portalSession.url });
+  }
 
   let customerId = subscription?.stripe_customer_id;
 

@@ -13,6 +13,7 @@ function mapStripeStatus(status: Stripe.Subscription.Status): SubscriptionStatus
     case "active":
       return "active";
     case "past_due":
+    case "unpaid":
       return "past_due";
     case "canceled":
       return "canceled";
@@ -225,6 +226,14 @@ async function processStripeWebhookEvent(event: Stripe.Event): Promise<void> {
 
       const userId = await findUserIdByCustomerId(customerId);
       if (!userId) break;
+
+      const subscriptionId = getInvoiceSubscriptionId(invoice);
+      if (subscriptionId) {
+        const stripe = await import("@/lib/stripe").then((m) => m.getStripe());
+        const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+        await upsertSubscriptionFromStripe(userId, customerId, subscription);
+        break;
+      }
 
       const gracePeriodEndsAt = nextGracePeriodEndsAt(
         await existingGracePeriodEndsAt(userId),
