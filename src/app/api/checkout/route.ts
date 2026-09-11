@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { isCheckoutTier, type Tier } from "@/lib/tiers";
 
@@ -69,10 +70,18 @@ export async function POST(request: Request) {
     });
     customerId = customer.id;
 
-    await supabase
+    const admin = createAdminClient();
+    const { error } = await admin
       .from("subscriptions")
       .update({ stripe_customer_id: customerId })
       .eq("user_id", user.id);
+
+    if (error) {
+      return NextResponse.json(
+        { error: "Unable to save the billing account." },
+        { status: 500 },
+      );
+    }
   }
 
   const promoCode = rawPromoCode?.trim();
