@@ -3,16 +3,22 @@ import { createSupabaseMock, makeSubscription } from "@/test/mocks/supabase";
 
 const {
   createClientMock,
+  createAdminClientMock,
   getStripeMock,
   isStripeConfiguredMock,
 } = vi.hoisted(() => ({
   createClientMock: vi.fn(),
+  createAdminClientMock: vi.fn(),
   getStripeMock: vi.fn(),
   isStripeConfiguredMock: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: createClientMock,
+}));
+
+vi.mock("@/lib/supabase/admin", () => ({
+  createAdminClient: createAdminClientMock,
 }));
 
 vi.mock("@/lib/stripe", () => ({
@@ -299,6 +305,8 @@ describe("POST /api/checkout", () => {
       },
     });
     createClientMock.mockResolvedValue(supabase);
+    const admin = createSupabaseMock();
+    createAdminClientMock.mockReturnValue(admin);
 
     const createCustomer = vi.fn().mockResolvedValue({ id: "cus_new" });
     const createSession = vi.fn().mockResolvedValue({ url: "https://checkout.stripe.com/x" });
@@ -319,8 +327,55 @@ describe("POST /api/checkout", () => {
       email: "test@example.com",
       metadata: { user_id: "user-1" },
     });
+    expect(admin.builders.subscriptions.builder.lastUpdate).toEqual({
+      stripe_customer_id: "cus_new",
+    });
+    expect(admin.builders.subscriptions.builder.eq).toHaveBeenCalledWith("user_id", "user-1");
     expect(createSession).toHaveBeenCalledWith(
       expect.objectContaining({ customer: "cus_new" }),
     );
+  });
+
+  it("does not create checkout when the Stripe customer cannot be persisted", async () => {
+    isStripeConfiguredMock.mockReturnValue(true);
+    createClientMock.mockResolvedValue(
+      createSupabaseMock({
+        fromResults: {
+          subscriptions: {
+            data: makeSubscription({ stripe_customer_id: null }),
+            error: null,
+          },
+        },
+      }),
+    );
+    createAdminClientMock.mockReturnValue(
+      createSupabaseMock({
+        fromResults: {
+          subscriptions: {
+            data: null,
+            error: { message: "database unavailable" },
+          },
+        },
+      }),
+    );
+
+    const createSession = vi.fn();
+    getStripeMock.mockReturnValue({
+      customers: { create: vi.fn().mockResolvedValue({ id: "cus_new" }) },
+      checkout: { sessions: { create: createSession } },
+    });
+
+    const response = await POST(
+      new Request("http://localhost/api/checkout", {
+        method: "POST",
+        body: JSON.stringify({ tier: "plus" }),
+      }),
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: "Unable to save the billing account.",
+    });
+    expect(createSession).not.toHaveBeenCalled();
   });
 });
