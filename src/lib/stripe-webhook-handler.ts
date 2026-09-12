@@ -29,10 +29,21 @@ async function recordWebhookEvent(eventId: string, eventType: string): Promise<b
   const { error } = await supabase.from("stripe_webhook_events").insert({
     id: eventId,
     event_type: eventType,
+    processed_at: null,
   });
 
   if (error?.code === "23505") {
-    return false;
+    const { data, error: lookupError } = await supabase
+      .from("stripe_webhook_events")
+      .select("processed_at")
+      .eq("id", eventId)
+      .maybeSingle();
+
+    if (lookupError) {
+      throw new Error(`Failed to inspect webhook event: ${lookupError.message}`);
+    }
+
+    return data?.processed_at == null;
   }
 
   if (error) {
@@ -40,6 +51,18 @@ async function recordWebhookEvent(eventId: string, eventType: string): Promise<b
   }
 
   return true;
+}
+
+async function completeWebhookEvent(eventId: string): Promise<void> {
+  const supabase = createAdminClient();
+  const { error } = await supabase
+    .from("stripe_webhook_events")
+    .update({ processed_at: new Date().toISOString() })
+    .eq("id", eventId);
+
+  if (error) {
+    throw new Error(`Failed to complete webhook event: ${error.message}`);
+  }
 }
 
 async function releaseWebhookEvent(eventId: string): Promise<void> {
@@ -294,6 +317,7 @@ export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<voi
 
   try {
     await processStripeWebhookEvent(event);
+    await completeWebhookEvent(event.id);
   } catch (error) {
     try {
       await releaseWebhookEvent(event.id);

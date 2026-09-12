@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type Stripe from "stripe";
-import { createSupabaseMock } from "@/test/mocks/supabase";
+import { createQueryBuilder, createSupabaseMock } from "@/test/mocks/supabase";
 
 const { createAdminClientMock, getStripeMock } = vi.hoisted(() => ({
   createAdminClientMock: vi.fn(),
@@ -60,14 +60,19 @@ describe("handleStripeWebhookEvent", () => {
   });
 
   it("skips duplicate webhook events (idempotent)", async () => {
-    const supabase = createSupabaseMock({
-      fromResults: {
-        stripe_webhook_events: {
-          data: null,
-          error: { message: "duplicate", code: "23505" },
-        },
-      },
+    const insert = createQueryBuilder({
+      data: null,
+      error: { message: "duplicate", code: "23505" },
     });
+    const lookup = createQueryBuilder({
+      data: { processed_at: "2026-09-12T10:00:00.000Z" },
+      error: null,
+    });
+    const from = vi
+      .fn()
+      .mockReturnValueOnce(insert.builder)
+      .mockReturnValueOnce(lookup.builder);
+    const supabase = { from };
     createAdminClientMock.mockReturnValue(supabase);
 
     await expect(
@@ -76,8 +81,36 @@ describe("handleStripeWebhookEvent", () => {
       ),
     ).resolves.toBeUndefined();
 
-    expect(supabase.from).toHaveBeenCalledWith("stripe_webhook_events");
-    expect(supabase.from).not.toHaveBeenCalledWith("subscriptions");
+    expect(from).toHaveBeenCalledTimes(2);
+    expect(lookup.builder.select).toHaveBeenCalledWith("processed_at");
+  });
+
+  it("retries a duplicate event whose processing never completed", async () => {
+    const insert = createQueryBuilder({
+      data: null,
+      error: { message: "duplicate", code: "23505" },
+    });
+    const lookup = createQueryBuilder({
+      data: { processed_at: null },
+      error: null,
+    });
+    const complete = createQueryBuilder({ data: null, error: null });
+    const from = vi
+      .fn()
+      .mockReturnValueOnce(insert.builder)
+      .mockReturnValueOnce(lookup.builder)
+      .mockReturnValueOnce(complete.builder);
+    const supabase = { from };
+    createAdminClientMock.mockReturnValue(supabase);
+
+    await expect(
+      handleStripeWebhookEvent(makeEvent("ping", {}, "evt_incomplete")),
+    ).resolves.toBeUndefined();
+
+    expect(complete.builder.update).toHaveBeenCalledWith({
+      processed_at: expect.any(String),
+    });
+    expect(complete.builder.eq).toHaveBeenCalledWith("id", "evt_incomplete");
   });
 
   it("upserts subscription on checkout.session.completed", async () => {
