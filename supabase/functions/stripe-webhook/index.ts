@@ -156,17 +156,27 @@ async function upsertSubscription(
   if (error) throw new Error(error.message);
 }
 
-async function downgradeToFree(userId: string, customerId?: string) {
+async function downgradeToFree(
+  userId: string,
+  customerId?: string,
+  expectedSubscriptionId?: string,
+) {
   const { data: subscription, error: lookupError } = await supabase
     .from("subscriptions")
-    .select("status, grace_period_ends_at")
+    .select("status, grace_period_ends_at, stripe_subscription_id")
     .eq("user_id", userId)
     .maybeSingle();
 
   if (lookupError) throw new Error(lookupError.message);
+  if (
+    expectedSubscriptionId &&
+    subscription?.stripe_subscription_id !== expectedSubscriptionId
+  ) {
+    return;
+  }
   if (isWithinDunningGrace(subscription)) return;
 
-  const { error } = await supabase
+  let update = supabase
     .from("subscriptions")
     .update({
       tier: "free",
@@ -180,6 +190,12 @@ async function downgradeToFree(userId: string, customerId?: string) {
       ...(customerId ? { stripe_customer_id: customerId } : {}),
     })
     .eq("user_id", userId);
+
+  if (expectedSubscriptionId) {
+    update = update.eq("stripe_subscription_id", expectedSubscriptionId);
+  }
+
+  const { error } = await update;
 
   if (error) throw new Error(error.message);
 }
@@ -216,7 +232,7 @@ async function processEvent(event: Stripe.Event) {
       if (!userId) throw new Error(`No user for customer ${customerId}`);
 
       if (subscription.status === "canceled") {
-        await downgradeToFree(userId, customerId);
+        await downgradeToFree(userId, customerId, subscription.id);
       } else {
         await upsertSubscription(userId, customerId, subscription);
       }
@@ -232,7 +248,7 @@ async function processEvent(event: Stripe.Event) {
 
       const userId = await findUserId(customerId);
       if (!userId) throw new Error(`No user for customer ${customerId}`);
-      await downgradeToFree(userId, customerId);
+      await downgradeToFree(userId, customerId, subscription.id);
       break;
     }
 
