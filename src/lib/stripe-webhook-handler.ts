@@ -262,21 +262,6 @@ async function processStripeWebhookEvent(event: Stripe.Event): Promise<void> {
         const stripe = await import("@/lib/stripe").then((m) => m.getStripe());
         const subscription = await stripe.subscriptions.retrieve(subscriptionId);
         await upsertSubscriptionFromStripe(userId, customerId, subscription);
-        break;
-      }
-
-      const supabase = createAdminClient();
-      const { error } = await supabase
-        .from("subscriptions")
-        .update({
-          status: "active",
-          grace_period_ends_at: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("user_id", userId);
-
-      if (error) {
-        throw new Error(`Failed to mark subscription active: ${error.message}`);
       }
       break;
     }
