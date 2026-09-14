@@ -3,6 +3,9 @@ import { expect, test } from "@playwright/test";
 test("shows Free plan and tracks chat usage", async ({ page }) => {
   await page.goto("/dashboard");
 
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Log in" })).toHaveCount(0);
+
   await expect(page.getByTestId("dashboard-plan")).toContainText("Free");
   await expect(page.getByTestId("dashboard-status")).toHaveText("active");
   await expect(page.getByTestId("dashboard-usage")).toHaveText("0 / 1,000");
