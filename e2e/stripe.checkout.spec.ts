@@ -51,5 +51,8 @@ test.describe("Stripe Checkout @stripe", () => {
     await expect(page.getByTestId("dashboard-plan")).toContainText("Plus", {
       timeout: 60_000,
     });
+    await expect(page.getByTestId("dashboard-invoice")).toContainText("$16", {
+      timeout: 60_000,
+    });
   });
 });

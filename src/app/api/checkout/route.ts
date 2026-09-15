@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 import { createClient } from "@/lib/supabase/server";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
+import { findActivePromotionCode } from "@/lib/stripe-promo";
 import { isCheckoutTier, type Tier } from "@/lib/tiers";
 
 function isStripeInvalidRequestError(
@@ -79,12 +80,7 @@ export async function POST(request: Request) {
   let discounts: Stripe.Checkout.SessionCreateParams.Discount[] | undefined;
 
   if (promoCode) {
-    const { data: promotionCodes } = await stripe.promotionCodes.list({
-      code: promoCode,
-      active: true,
-      limit: 1,
-    });
-    const promotionCode = promotionCodes[0];
+    const promotionCode = await findActivePromotionCode(stripe, promoCode);
 
     if (!promotionCode) {
       return NextResponse.json(

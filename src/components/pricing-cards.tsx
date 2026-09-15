@@ -11,20 +11,71 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { TIER_LIMITS, type Tier } from "@/lib/tiers";
+import {
+  discountedPriceCents,
+  formatUsdFromCents,
+  type PromoDiscount,
+} from "@/lib/promo";
 import { Check } from "lucide-react";
 
 interface PricingCardsProps {
   currentTier?: Tier;
   onSelectTier?: (tier: Tier) => void;
   loadingTier?: Tier | null;
+  promoDiscount?: PromoDiscount | null;
 }
 
 const tierOrder: Tier[] = ["free", "plus", "pro", "enterprise"];
+
+function TierPrice({
+  priceMonthly,
+  promoDiscount,
+}: {
+  priceMonthly: number | null;
+  promoDiscount?: PromoDiscount | null;
+}) {
+  if (priceMonthly == null) {
+    return <span className="text-4xl font-bold tracking-tight">Custom</span>;
+  }
+
+  if (priceMonthly > 0 && promoDiscount) {
+    const discountedCents = discountedPriceCents(priceMonthly * 100, promoDiscount);
+    if (discountedCents !== priceMonthly * 100) {
+      return (
+        <>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-semibold text-muted-foreground line-through">
+              ${priceMonthly}
+            </span>
+            <span className="text-4xl font-bold tracking-tight">
+              {formatUsdFromCents(discountedCents)}
+            </span>
+          </div>
+          {promoDiscount.duration === "once" ? (
+            <p className="text-sm text-muted-foreground">
+              first invoice, then ${priceMonthly}/mo
+            </p>
+          ) : (
+            <span className="text-muted-foreground">/month</span>
+          )}
+        </>
+      );
+    }
+  }
+
+  return (
+    <>
+      <span className="text-4xl font-bold tracking-tight">${priceMonthly}</span>
+      <span className="text-muted-foreground">/month</span>
+    </>
+  );
+}
 
 export function PricingCards({
   currentTier = "free",
   onSelectTier,
   loadingTier = null,
+  promoDiscount = null,
 }: PricingCardsProps) {
   return (
     <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
@@ -49,16 +100,10 @@ export function PricingCards({
               </CardTitle>
               <CardDescription>{details.description}</CardDescription>
               <div className="pt-2">
-                {details.priceMonthly == null ? (
-                  <span className="text-4xl font-bold tracking-tight">Custom</span>
-                ) : (
-                  <>
-                    <span className="text-4xl font-bold tracking-tight">
-                      ${details.priceMonthly}
-                    </span>
-                    <span className="text-muted-foreground">/month</span>
-                  </>
-                )}
+                <TierPrice
+                  priceMonthly={details.priceMonthly}
+                  promoDiscount={promoDiscount}
+                />
               </div>
             </CardHeader>
             <CardContent className="flex-1">

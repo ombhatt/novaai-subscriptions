@@ -19,6 +19,24 @@ describe("PricingCards", () => {
     expect(screen.getByRole("button", { name: "Contact sales" })).toBeInTheDocument();
   });
 
+  it("previews a first-invoice promo on Plus and Pro without changing the monthly rate", () => {
+    render(
+      <PricingCards
+        promoDiscount={{
+          percentOff: 20,
+          amountOffCents: null,
+          duration: "once",
+        }}
+      />,
+    );
+
+    expect(screen.getByText("$16")).toBeInTheDocument();
+    expect(screen.getByText("$79.20")).toBeInTheDocument();
+    expect(screen.getByText("$20")).toBeInTheDocument();
+    expect(screen.getByText("$99")).toBeInTheDocument();
+    expect(screen.getAllByText(/first invoice/i)).toHaveLength(2);
+  });
+
   it("marks the current tier", () => {
     render(<PricingCards currentTier="plus" />);
     expect(screen.getByText("Current")).toBeInTheDocument();
