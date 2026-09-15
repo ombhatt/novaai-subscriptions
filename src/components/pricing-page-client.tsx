@@ -19,9 +19,15 @@ export function PricingPageClient() {
   const [loadingTier, setLoadingTier] = useState<Tier | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [promoCode, setPromoCode] = useState(() => searchParams.get("promo") ?? "");
-  const [promoDiscount, setPromoDiscount] = useState<PromoDiscount | null>(null);
+  const [promoDiscount, setPromoDiscount] = useState<{
+    code: string;
+    discount: PromoDiscount;
+  } | null>(null);
   const [showInquiry, setShowInquiry] = useState(false);
   const [inquiryEmail, setInquiryEmail] = useState("");
+  const trimmedPromo = promoCode.trim();
+  const visiblePromoDiscount =
+    promoDiscount?.code === trimmedPromo ? promoDiscount.discount : null;
 
   useEffect(() => {
     fetch("/api/subscription")
@@ -33,15 +39,11 @@ export function PricingPageClient() {
   }, []);
 
   useEffect(() => {
-    const code = promoCode.trim();
-    if (!code) {
-      setPromoDiscount(null);
-      return;
-    }
+    if (!trimmedPromo) return;
 
     let cancelled = false;
     const timeout = window.setTimeout(() => {
-      fetch(`/api/promo?code=${encodeURIComponent(code)}`)
+      fetch(`/api/promo?code=${encodeURIComponent(trimmedPromo)}`)
         .then((res) => (res.ok ? res.json() : null))
         .then((json) => {
           if (cancelled) return;
@@ -50,11 +52,15 @@ export function PricingPageClient() {
             return;
           }
           setPromoDiscount({
-            percentOff: json.percentOff ?? null,
-            amountOffCents: json.amountOffCents ?? null,
-            duration: json.duration === "repeating" || json.duration === "forever"
-              ? json.duration
-              : "once",
+            code: trimmedPromo,
+            discount: {
+              percentOff: json.percentOff ?? null,
+              amountOffCents: json.amountOffCents ?? null,
+              duration:
+                json.duration === "repeating" || json.duration === "forever"
+                  ? json.duration
+                  : "once",
+            },
           });
         })
         .catch(() => {
@@ -66,7 +72,7 @@ export function PricingPageClient() {
       cancelled = true;
       window.clearTimeout(timeout);
     };
-  }, [promoCode]);
+  }, [trimmedPromo]);
 
   async function handleSelectTier(tier: Tier) {
     setError(null);
@@ -87,8 +93,6 @@ export function PricingPageClient() {
     }
 
     setLoadingTier(tier);
-
-    const trimmedPromo = promoCode.trim();
 
     const meResponse = await fetch("/api/me");
     const me = await meResponse.json();
@@ -161,7 +165,7 @@ export function PricingPageClient() {
         currentTier={currentTier}
         onSelectTier={handleSelectTier}
         loadingTier={loadingTier}
-        promoDiscount={promoDiscount}
+        promoDiscount={visiblePromoDiscount}
       />
       {showInquiry && (
         <div className="mt-10">
