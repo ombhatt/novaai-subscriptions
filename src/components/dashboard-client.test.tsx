@@ -60,6 +60,37 @@ describe("DashboardClient", () => {
     expect(
       await screen.findByText(/requests remaining this billing period/),
     ).toBeInTheDocument();
+    expect(screen.getByTestId("dashboard-plan")).toHaveTextContent("$20/mo");
+    expect(screen.queryByTestId("dashboard-invoice")).not.toBeInTheDocument();
+  });
+
+  it("shows the discounted latest invoice after a promo Plus checkout", async () => {
+    vi.spyOn(global, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          subscription: {
+            current_period_start: "2026-09-15T00:00:00.000Z",
+            current_period_end: "2026-10-15T00:00:00.000Z",
+          },
+          usage: 0,
+          limit: 50000,
+          remaining: 50000,
+          tier: "plus",
+          status: "active",
+          lastInvoice: { totalCents: 1600, subtotalCents: 2000 },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    render(<DashboardClient />);
+
+    expect(await screen.findByTestId("dashboard-plan")).toHaveTextContent(
+      "You are on the Plus plan ($20/mo)",
+    );
+    expect(screen.getByTestId("dashboard-invoice")).toHaveTextContent(
+      "Your latest invoice was $16 after a promo. Plus stays $20/mo after that.",
+    );
   });
 
   it("shows an error state when subscription fetch fails", async () => {

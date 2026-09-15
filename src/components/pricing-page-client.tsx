@@ -6,7 +6,11 @@ import { EnterpriseInquiryForm } from "@/components/enterprise-inquiry-form";
 import { PricingCards } from "@/components/pricing-cards";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import type { PromoDiscount } from "@/lib/promo";
 import type { Tier } from "@/lib/tiers";
+
+export const PROMO_CODE_HINT =
+  "Optional. We'll apply a valid code automatically at checkout. First-invoice discounts show on the cards; the monthly rate stays the same.";
 
 export function PricingPageClient() {
   const router = useRouter();
@@ -15,6 +19,7 @@ export function PricingPageClient() {
   const [loadingTier, setLoadingTier] = useState<Tier | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [promoCode, setPromoCode] = useState(() => searchParams.get("promo") ?? "");
+  const [promoDiscount, setPromoDiscount] = useState<PromoDiscount | null>(null);
   const [showInquiry, setShowInquiry] = useState(false);
   const [inquiryEmail, setInquiryEmail] = useState("");
 
@@ -26,6 +31,42 @@ export function PricingPageClient() {
       })
       .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    const code = promoCode.trim();
+    if (!code) {
+      setPromoDiscount(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timeout = window.setTimeout(() => {
+      fetch(`/api/promo?code=${encodeURIComponent(code)}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((json) => {
+          if (cancelled) return;
+          if (!json?.valid) {
+            setPromoDiscount(null);
+            return;
+          }
+          setPromoDiscount({
+            percentOff: json.percentOff ?? null,
+            amountOffCents: json.amountOffCents ?? null,
+            duration: json.duration === "repeating" || json.duration === "forever"
+              ? json.duration
+              : "once",
+          });
+        })
+        .catch(() => {
+          if (!cancelled) setPromoDiscount(null);
+        });
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [promoCode]);
 
   async function handleSelectTier(tier: Tier) {
     setError(null);
@@ -113,13 +154,14 @@ export function PricingPageClient() {
           }
         />
         <p id="promo-code-hint" className="mt-1 text-xs text-muted-foreground">
-          Optional. The discount is applied on the Stripe checkout page.
+          {PROMO_CODE_HINT}
         </p>
       </div>
       <PricingCards
         currentTier={currentTier}
         onSelectTier={handleSelectTier}
         loadingTier={loadingTier}
+        promoDiscount={promoDiscount}
       />
       {showInquiry && (
         <div className="mt-10">

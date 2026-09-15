@@ -17,6 +17,11 @@ import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import type { Subscription } from "@/lib/entitlements";
 import { isWithinDunningGrace } from "@/lib/dunning";
+import {
+  formatUsdFromCents,
+  invoiceHasPromo,
+  type InvoiceSnapshot,
+} from "@/lib/promo";
 import { TIER_LIMITS, type Tier } from "@/lib/tiers";
 import { AlertCircle, CreditCard, Loader2 } from "lucide-react";
 
@@ -27,6 +32,7 @@ interface DashboardData {
   remaining: number;
   tier: Tier;
   status: string;
+  lastInvoice?: InvoiceSnapshot | null;
 }
 
 async function fetchDashboardData(): Promise<DashboardData> {
@@ -196,6 +202,18 @@ export function DashboardClient() {
             You are on the {tierDetails.label} plan
             {tierDetails.priceMonthly != null ? ` ($${tierDetails.priceMonthly}/mo)` : ""}
           </CardDescription>
+          {data.lastInvoice &&
+            invoiceHasPromo(data.lastInvoice) &&
+            tierDetails.priceMonthly != null && (
+              <p
+                data-testid="dashboard-invoice"
+                className="text-sm text-muted-foreground"
+              >
+                Your latest invoice was{" "}
+                {formatUsdFromCents(data.lastInvoice.totalCents)} after a promo.{" "}
+                {tierDetails.label} stays ${tierDetails.priceMonthly}/mo after that.
+              </p>
+            )}
         </CardHeader>
         <CardContent className="space-y-4">
           <div>

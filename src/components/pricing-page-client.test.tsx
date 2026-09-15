@@ -21,6 +21,20 @@ describe("PricingPageClient", () => {
     searchParamsGet.mockReturnValue(null);
   });
 
+  it("explains that a promo is applied automatically to the first invoice", () => {
+    vi.spyOn(global, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ tier: "free" }), { status: 200 }),
+    );
+
+    render(<PricingPageClient />);
+
+    expect(
+      screen.getByText(
+        "Optional. We'll apply a valid code automatically at checkout. First-invoice discounts show on the cards; the monthly rate stays the same.",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("prefills the promo field from ?promo=", () => {
     searchParamsGet.mockReturnValue("WELCOME20");
     vi.spyOn(global, "fetch").mockResolvedValue(
@@ -30,6 +44,38 @@ describe("PricingPageClient", () => {
     render(<PricingPageClient />);
 
     expect(screen.getByTestId("promo-code")).toHaveValue("WELCOME20");
+  });
+
+  it("previews WELCOME20 as $16 on the Plus card", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(global, "fetch").mockImplementation((input) => {
+      const url = String(input);
+      if (url.includes("/api/subscription")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ tier: "free" }), { status: 200 }),
+        );
+      }
+      if (url.includes("/api/promo")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              valid: true,
+              percentOff: 20,
+              amountOffCents: null,
+              duration: "once",
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      return Promise.reject(new Error(`unexpected fetch: ${url}`));
+    });
+
+    render(<PricingPageClient />);
+    await user.type(screen.getByTestId("promo-code"), "WELCOME20");
+
+    expect(await screen.findByText("$16", undefined, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.getByText("$20")).toBeInTheDocument();
   });
 
   it("includes promoCode in the checkout request", async () => {
