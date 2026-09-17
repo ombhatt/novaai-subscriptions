@@ -206,14 +206,23 @@ export function DashboardClient() {
         <div
           role="status"
           data-testid="cancellation-banner"
-          className="rounded-lg border bg-muted/50 px-4 py-3 text-sm"
+          className="flex flex-wrap items-start justify-between gap-3 rounded-lg border bg-muted/50 px-4 py-3 text-sm"
         >
-          <p className="font-medium">Cancellation scheduled</p>
-          <p className="mt-1 text-muted-foreground">
-            {tierDetails.label} stays active
-            {periodEndLabel ? ` until ${periodEndLabel}` : " until the billing period ends"}.
-            Then you&apos;ll move to Free.
-          </p>
+          <div>
+            <p className="font-medium">Cancellation scheduled</p>
+            <p className="mt-1 text-muted-foreground">
+              {tierDetails.label} stays active
+              {periodEndLabel ? ` until ${periodEndLabel}` : " until the billing period ends"}.
+              Then you&apos;ll move to Free.
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            onClick={() => updateCancellation(false)}
+            disabled={cancelLoading}
+          >
+            {cancelLoading ? "Saving…" : "Keep plan"}
+          </Button>
         </div>
       )}
       {inDunningGrace && graceEndsLabel && (
@@ -304,15 +313,6 @@ export function DashboardClient() {
                 disabled={cancelLoading}
               >
                 Cancel plan
-              </Button>
-            )}
-            {cancelAtPeriodEnd && (
-              <Button
-                variant="outline"
-                onClick={() => updateCancellation(false)}
-                disabled={cancelLoading}
-              >
-                {cancelLoading ? "Saving…" : "Keep plan"}
               </Button>
             )}
           </div>
