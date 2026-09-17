@@ -56,6 +56,18 @@ describe("PricingCards", () => {
     expect(screen.queryByRole("button", { name: "Upgrade to Plus" })).not.toBeInTheDocument();
   });
 
+  it("offers Cancel to Free on the Free card for paid plans", () => {
+    render(<PricingCards currentTier="plus" />);
+    expect(screen.getByRole("button", { name: "Cancel to Free" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Default plan" })).not.toBeInTheDocument();
+  });
+
+  it("keeps Included on Free when that is the current plan", () => {
+    render(<PricingCards currentTier="free" />);
+    expect(screen.getByRole("button", { name: "Included" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Cancel to Free" })).not.toBeInTheDocument();
+  });
+
   it("calls onSelectTier when upgrading", async () => {
     const user = userEvent.setup();
     const onSelectTier = vi.fn();
@@ -69,6 +81,15 @@ describe("PricingCards", () => {
 
     await user.click(screen.getByRole("button", { name: "Contact sales" }));
     expect(onSelectTier).toHaveBeenCalledWith("enterprise");
+  });
+
+  it("calls onSelectTier with free when a paid customer cancels to Free", async () => {
+    const user = userEvent.setup();
+    const onSelectTier = vi.fn();
+    render(<PricingCards currentTier="pro" onSelectTier={onSelectTier} />);
+
+    await user.click(screen.getByRole("button", { name: "Cancel to Free" }));
+    expect(onSelectTier).toHaveBeenCalledWith("free");
   });
 
   it("shows redirecting state for loading tier", () => {

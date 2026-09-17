@@ -10,7 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { TIER_LIMITS, compareTiers, type Tier } from "@/lib/tiers";
+import { TIER_LIMITS, compareTiers, isPaidTier, type Tier } from "@/lib/tiers";
 import {
   discountedPriceCents,
   formatUsdFromCents,
@@ -121,8 +121,21 @@ export function PricingCards({
               </CardContent>
               <CardFooter>
                 {tier === "free" ? (
-                  <Button className="w-full" variant="outline" disabled={isCurrent}>
-                    {isCurrent ? "Included" : "Default plan"}
+                  <Button
+                    className="w-full"
+                    variant="outline"
+                    disabled={isCurrent || loadingTier === "free"}
+                    onClick={() => {
+                      if (!isCurrent) onSelectTier?.(tier);
+                    }}
+                  >
+                    {loadingTier === "free"
+                      ? "Scheduling…"
+                      : isCurrent
+                        ? "Included"
+                        : isPaidTier(currentTier)
+                          ? "Cancel to Free"
+                          : "Default plan"}
                   </Button>
                 ) : isEnterprise ? (
                   <Button

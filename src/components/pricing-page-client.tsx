@@ -4,6 +4,13 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { EnterpriseInquiryForm } from "@/components/enterprise-inquiry-form";
 import { PricingCards } from "@/components/pricing-cards";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { PromoDiscount } from "@/lib/promo";
@@ -89,6 +96,28 @@ export function PricingPageClient() {
         setInquiryEmail("");
       }
       setShowInquiry(true);
+      return;
+    }
+
+    if (tier === "free") {
+      if (!isPaidTier(currentTier)) {
+        return;
+      }
+
+      setLoadingTier("free");
+      try {
+        const response = await fetch("/api/subscription/cancel", { method: "POST" });
+        const json = await response.json();
+        if (!response.ok) {
+          throw new Error(json.error ?? "Failed to schedule cancellation");
+        }
+        window.location.href = "/dashboard";
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Failed to schedule cancellation",
+        );
+        setLoadingTier(null);
+      }
       return;
     }
 
@@ -186,15 +215,21 @@ export function PricingPageClient() {
         loadingTier={loadingTier}
         promoDiscount={visiblePromoDiscount}
       />
-      {showInquiry && (
-        <div className="mt-10">
+      <Dialog open={showInquiry} onOpenChange={setShowInquiry}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Talk to sales</DialogTitle>
+            <DialogDescription>
+              Tell us about your team. This does not start a Stripe checkout.
+            </DialogDescription>
+          </DialogHeader>
           <EnterpriseInquiryForm
             key={inquiryEmail}
             initialEmail={inquiryEmail}
             promoCode={promoCode}
           />
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
