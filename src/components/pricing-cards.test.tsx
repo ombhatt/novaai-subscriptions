@@ -19,6 +19,11 @@ describe("PricingCards", () => {
     expect(screen.getByRole("button", { name: "Contact sales" })).toBeInTheDocument();
   });
 
+  it("keeps the Most popular badge outside the Plus card so overflow does not clip it", () => {
+    render(<PricingCards />);
+    expect(screen.getByText("Most popular").closest("[data-slot=card]")).toBeNull();
+  });
+
   it("previews a first-invoice promo on Plus and Pro without changing the monthly rate", () => {
     render(
       <PricingCards
