@@ -257,13 +257,13 @@ describe("PricingPageClient", () => {
     ).toBe(false);
   });
 
-  it("sends a Pro subscriber to the billing portal to downgrade to Plus", async () => {
+  it("changes an existing Plus subscription to Pro instead of opening checkout or the portal", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.spyOn(global, "fetch").mockImplementation((input) => {
       const url = String(input);
-      if (url.includes("/api/subscription")) {
+      if (url.includes("/api/subscription") && !url.includes("/api/subscription/change")) {
         return Promise.resolve(
-          new Response(JSON.stringify({ tier: "pro" }), { status: 200 }),
+          new Response(JSON.stringify({ tier: "plus" }), { status: 200 }),
         );
       }
       if (url.includes("/api/me")) {
@@ -273,9 +273,9 @@ describe("PricingPageClient", () => {
           }),
         );
       }
-      if (url.includes("/api/portal")) {
+      if (url.includes("/api/subscription/change")) {
         return Promise.resolve(
-          new Response(JSON.stringify({ url: "https://billing.stripe.com/p" }), {
+          new Response(JSON.stringify({ url: "http://localhost/dashboard" }), {
             status: 200,
           }),
         );
@@ -287,18 +287,70 @@ describe("PricingPageClient", () => {
     vi.stubGlobal("location", location);
 
     render(<PricingPageClient />);
-    await user.click(await screen.findByRole("button", { name: "Downgrade to Plus" }));
+    await screen.findByRole("button", { name: "Current plan" });
+    await user.click(screen.getByRole("button", { name: "Upgrade to Pro" }));
 
     await waitFor(() => {
-      expect(location.href).toBe("https://billing.stripe.com/p");
+      expect(location.href).toBe("http://localhost/dashboard");
+    });
+
+    const changeCall = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        String(url).includes("/api/subscription/change") && init?.method === "POST",
+    );
+    expect(JSON.parse(String(changeCall?.[1]?.body))).toEqual({ tier: "pro" });
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).includes("/api/portal")),
+    ).toBe(false);
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).includes("/api/checkout")),
+    ).toBe(false);
+  });
+
+  it("changes an existing Pro subscription to Plus instead of opening the billing portal", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.spyOn(global, "fetch").mockImplementation((input) => {
+      const url = String(input);
+      if (url.includes("/api/subscription") && !url.includes("/api/subscription/change")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ tier: "pro" }), { status: 200 }),
+        );
+      }
+      if (url.includes("/api/me")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ user: { id: "user-1" } }), {
+            status: 200,
+          }),
+        );
+      }
+      if (url.includes("/api/subscription/change")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ url: "http://localhost/dashboard" }), {
+            status: 200,
+          }),
+        );
+      }
+      return Promise.reject(new Error(`unexpected fetch: ${url}`));
+    });
+
+    const location = { href: "http://localhost/pricing" };
+    vi.stubGlobal("location", location);
+
+    render(<PricingPageClient />);
+    await screen.findByRole("button", { name: "Current plan" });
+    await user.click(screen.getByRole("button", { name: "Downgrade to Plus" }));
+
+    await waitFor(() => {
+      expect(location.href).toBe("http://localhost/dashboard");
     });
     expect(
       fetchMock.mock.calls.some(
-        ([url, init]) => String(url).includes("/api/portal") && init?.method === "POST",
+        ([url, init]) =>
+          String(url).includes("/api/subscription/change") && init?.method === "POST",
       ),
     ).toBe(true);
     expect(
-      fetchMock.mock.calls.some(([url]) => String(url).includes("/api/checkout")),
+      fetchMock.mock.calls.some(([url]) => String(url).includes("/api/portal")),
     ).toBe(false);
   });
 });

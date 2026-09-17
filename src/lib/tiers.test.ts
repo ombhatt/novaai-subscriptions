@@ -3,6 +3,7 @@ import {
   TIER_LIMITS,
   isCheckoutTier,
   isPaidTier,
+  stripePriceIdForTier,
   tierFromStripePriceId,
   compareTiers,
   type Tier,
@@ -95,6 +96,11 @@ describe("tierFromStripePriceId", () => {
   it("maps plus and pro price IDs", () => {
     expect(tierFromStripePriceId("price_plus_test")).toBe("plus");
     expect(tierFromStripePriceId("price_pro_test")).toBe("pro");
+  });
+
+  it("returns the configured price ID for plus and pro", () => {
+    expect(stripePriceIdForTier("plus")).toBe("price_plus_test");
+    expect(stripePriceIdForTier("pro")).toBe("price_pro_test");
   });
 
   it("returns free for unknown price IDs", () => {

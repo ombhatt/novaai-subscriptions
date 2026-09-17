@@ -3,7 +3,7 @@ import type Stripe from "stripe";
 import { createClient } from "@/lib/supabase/server";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { findActivePromotionCode } from "@/lib/stripe-promo";
-import { isCheckoutTier, type Tier } from "@/lib/tiers";
+import { isCheckoutTier, stripePriceIdForTier, type Tier } from "@/lib/tiers";
 
 function isStripeInvalidRequestError(
   error: unknown,
@@ -42,8 +42,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid tier for checkout." }, { status: 400 });
   }
 
-  const priceId =
-    tier === "plus" ? process.env.STRIPE_PRICE_PLUS : process.env.STRIPE_PRICE_PRO;
+  const priceId = stripePriceIdForTier(tier);
 
   if (!priceId) {
     return NextResponse.json(
