@@ -97,6 +97,10 @@ export function isCheckoutTier(tier: string | undefined): tier is CheckoutTier {
   return tier === "plus" || tier === "pro";
 }
 
+export function stripePriceIdForTier(tier: CheckoutTier): string | undefined {
+  return tier === "plus" ? process.env.STRIPE_PRICE_PLUS : process.env.STRIPE_PRICE_PRO;
+}
+
 const TIER_RANK: Record<Tier, number> = {
   free: 0,
   plus: 1,

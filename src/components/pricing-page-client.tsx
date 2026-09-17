@@ -110,25 +110,28 @@ export function PricingPageClient() {
       isPaidTier(currentTier) && isCheckoutTier(tier) && tier !== currentTier;
 
     try {
-      const response = await fetch(switchingPaidPlan ? "/api/portal" : "/api/checkout", {
-        method: "POST",
-        headers: switchingPaidPlan
-          ? undefined
-          : { "Content-Type": "application/json" },
-        body: switchingPaidPlan
-          ? undefined
-          : JSON.stringify({
-              tier,
-              ...(trimmedPromo ? { promoCode: trimmedPromo } : {}),
-            }),
-      });
+      const response = await fetch(
+        switchingPaidPlan ? "/api/subscription/change" : "/api/checkout",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(
+            switchingPaidPlan
+              ? { tier }
+              : {
+                  tier,
+                  ...(trimmedPromo ? { promoCode: trimmedPromo } : {}),
+                },
+          ),
+        },
+      );
 
       const json = await response.json();
 
       if (!response.ok) {
         throw new Error(
           json.error ??
-            (switchingPaidPlan ? "Failed to open billing portal" : "Checkout failed"),
+            (switchingPaidPlan ? "Failed to change plan" : "Checkout failed"),
         );
       }
 
@@ -138,7 +141,7 @@ export function PricingPageClient() {
         err instanceof Error
           ? err.message
           : switchingPaidPlan
-            ? "Failed to open billing portal"
+            ? "Failed to change plan"
             : "Checkout failed",
       );
       setLoadingTier(null);
