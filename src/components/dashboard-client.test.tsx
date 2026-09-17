@@ -312,4 +312,104 @@ describe("DashboardClient", () => {
       expect(location.href).toBe("https://billing.stripe.com/p");
     });
   });
+
+  it("lets a Plus subscriber cancel at period end and then drop to Free", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.spyOn(global, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            subscription: {
+              current_period_end: "2026-10-15T00:00:00.000Z",
+              cancel_at_period_end: false,
+            },
+            usage: 0,
+            limit: 50000,
+            remaining: 50000,
+            tier: "plus",
+            status: "active",
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ cancelAtPeriodEnd: true }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            subscription: {
+              current_period_end: "2026-10-15T00:00:00.000Z",
+              cancel_at_period_end: true,
+            },
+            usage: 0,
+            limit: 50000,
+            remaining: 50000,
+            tier: "plus",
+            status: "active",
+          }),
+          { status: 200 },
+        ),
+      );
+
+    render(<DashboardClient />);
+    await user.click(await screen.findByRole("button", { name: "Cancel plan" }));
+    expect(await screen.findByTestId("cancel-plan-confirm")).toHaveTextContent(
+      /keep Plus until/,
+    );
+    expect(screen.getByTestId("cancel-plan-confirm")).toHaveTextContent(/Free/);
+    await user.click(screen.getByRole("button", { name: "Confirm cancellation" }));
+
+    expect(await screen.findByTestId("cancellation-banner")).toHaveTextContent(
+      /move to Free/,
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/subscription/cancel",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("lets the customer keep the plan after scheduling cancellation", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(global, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            subscription: {
+              current_period_end: "2026-10-15T00:00:00.000Z",
+              cancel_at_period_end: true,
+            },
+            usage: 0,
+            limit: 50000,
+            remaining: 50000,
+            tier: "plus",
+            status: "active",
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ cancelAtPeriodEnd: false }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            subscription: {
+              current_period_end: "2026-10-15T00:00:00.000Z",
+              cancel_at_period_end: false,
+            },
+            usage: 0,
+            limit: 50000,
+            remaining: 50000,
+            tier: "plus",
+            status: "active",
+          }),
+          { status: 200 },
+        ),
+      );
+
+    render(<DashboardClient />);
+    await user.click(await screen.findByRole("button", { name: "Keep plan" }));
+    expect(await screen.findByRole("button", { name: "Cancel plan" })).toBeInTheDocument();
+  });
 });

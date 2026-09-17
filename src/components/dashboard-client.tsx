@@ -22,7 +22,7 @@ import {
   invoiceHasPromo,
   type InvoiceSnapshot,
 } from "@/lib/promo";
-import { TIER_LIMITS, type Tier } from "@/lib/tiers";
+import { TIER_LIMITS, isPaidTier, type Tier } from "@/lib/tiers";
 import { AlertCircle, CreditCard, Loader2 } from "lucide-react";
 
 interface DashboardData {
@@ -51,6 +51,8 @@ export function DashboardClient() {
   const [chatLoading, setChatLoading] = useState(false);
   const [chatReply, setChatReply] = useState<string | null>(null);
   const [portalLoading, setPortalLoading] = useState(false);
+  const [cancelLoading, setCancelLoading] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
 
   async function loadDashboard() {
     setLoading(true);
@@ -129,6 +131,29 @@ export function DashboardClient() {
     }
   }
 
+  async function updateCancellation(cancelAtPeriodEnd: boolean) {
+    setCancelLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        cancelAtPeriodEnd ? "/api/subscription/cancel" : "/api/subscription/resume",
+        { method: "POST" },
+      );
+      const json = await response.json();
+      if (!response.ok) {
+        throw new Error(json.error ?? "Unable to update cancellation");
+      }
+      setConfirmCancel(false);
+      await loadDashboard();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Unable to update cancellation",
+      );
+    } finally {
+      setCancelLoading(false);
+    }
+  }
+
   if (loading) {
     return (
       <div
@@ -164,6 +189,11 @@ export function DashboardClient() {
   const graceEndsLabel = data.subscription?.grace_period_ends_at
     ? new Date(data.subscription.grace_period_ends_at).toLocaleDateString()
     : null;
+  const periodEndLabel = data.subscription?.current_period_end
+    ? new Date(data.subscription.current_period_end).toLocaleDateString()
+    : null;
+  const cancelAtPeriodEnd = Boolean(data.subscription?.cancel_at_period_end);
+  const canCancelPlan = isPaidTier(data.tier) && !cancelAtPeriodEnd;
 
   return (
     <div className="space-y-6">
@@ -171,6 +201,20 @@ export function DashboardClient() {
         <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {error}
         </p>
+      )}
+      {cancelAtPeriodEnd && (
+        <div
+          role="status"
+          data-testid="cancellation-banner"
+          className="rounded-lg border bg-muted/50 px-4 py-3 text-sm"
+        >
+          <p className="font-medium">Cancellation scheduled</p>
+          <p className="mt-1 text-muted-foreground">
+            {tierDetails.label} stays active
+            {periodEndLabel ? ` until ${periodEndLabel}` : " until the billing period ends"}.
+            Then you&apos;ll move to Free.
+          </p>
+        </div>
       )}
       {inDunningGrace && graceEndsLabel && (
         <div
@@ -253,7 +297,53 @@ export function DashboardClient() {
                 {portalLoading ? "Opening…" : "Manage billing"}
               </Button>
             )}
+            {canCancelPlan && !confirmCancel && (
+              <Button
+                variant="outline"
+                onClick={() => setConfirmCancel(true)}
+                disabled={cancelLoading}
+              >
+                Cancel plan
+              </Button>
+            )}
+            {cancelAtPeriodEnd && (
+              <Button
+                variant="outline"
+                onClick={() => updateCancellation(false)}
+                disabled={cancelLoading}
+              >
+                {cancelLoading ? "Saving…" : "Keep plan"}
+              </Button>
+            )}
           </div>
+          {confirmCancel && (
+            <div
+              data-testid="cancel-plan-confirm"
+              className="rounded-lg border px-4 py-3 text-sm"
+            >
+              <p>
+                You&apos;ll keep {tierDetails.label}
+                {periodEndLabel ? ` until ${periodEndLabel}` : " until the billing period ends"}.
+                Then you&apos;ll move to Free. You won&apos;t get a refund.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  variant="destructive"
+                  onClick={() => updateCancellation(true)}
+                  disabled={cancelLoading}
+                >
+                  {cancelLoading ? "Scheduling…" : "Confirm cancellation"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => setConfirmCancel(false)}
+                  disabled={cancelLoading}
+                >
+                  Never mind
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
