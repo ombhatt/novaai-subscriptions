@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DashboardClient } from "@/components/dashboard-client";
 
@@ -360,9 +360,9 @@ describe("DashboardClient", () => {
     expect(screen.getByTestId("cancel-plan-confirm")).toHaveTextContent(/Free/);
     await user.click(screen.getByRole("button", { name: "Confirm cancellation" }));
 
-    expect(await screen.findByTestId("cancellation-banner")).toHaveTextContent(
-      /move to Free/,
-    );
+    const banner = await screen.findByTestId("cancellation-banner");
+    expect(banner).toHaveTextContent(/move to Free/);
+    expect(within(banner).getByRole("button", { name: "Keep plan" })).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/subscription/cancel",
       expect.objectContaining({ method: "POST" }),
@@ -409,7 +409,8 @@ describe("DashboardClient", () => {
       );
 
     render(<DashboardClient />);
-    await user.click(await screen.findByRole("button", { name: "Keep plan" }));
+    const banner = await screen.findByTestId("cancellation-banner");
+    await user.click(within(banner).getByRole("button", { name: "Keep plan" }));
     expect(await screen.findByRole("button", { name: "Cancel plan" })).toBeInTheDocument();
   });
 });
