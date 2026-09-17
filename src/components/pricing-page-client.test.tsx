@@ -256,4 +256,49 @@ describe("PricingPageClient", () => {
       fetchMock.mock.calls.some(([url]) => String(url).includes("/api/checkout")),
     ).toBe(false);
   });
+
+  it("sends a Pro subscriber to the billing portal to downgrade to Plus", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.spyOn(global, "fetch").mockImplementation((input) => {
+      const url = String(input);
+      if (url.includes("/api/subscription")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ tier: "pro" }), { status: 200 }),
+        );
+      }
+      if (url.includes("/api/me")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ user: { id: "user-1" } }), {
+            status: 200,
+          }),
+        );
+      }
+      if (url.includes("/api/portal")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ url: "https://billing.stripe.com/p" }), {
+            status: 200,
+          }),
+        );
+      }
+      return Promise.reject(new Error(`unexpected fetch: ${url}`));
+    });
+
+    const location = { href: "http://localhost/pricing" };
+    vi.stubGlobal("location", location);
+
+    render(<PricingPageClient />);
+    await user.click(await screen.findByRole("button", { name: "Downgrade to Plus" }));
+
+    await waitFor(() => {
+      expect(location.href).toBe("https://billing.stripe.com/p");
+    });
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) => String(url).includes("/api/portal") && init?.method === "POST",
+      ),
+    ).toBe(true);
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).includes("/api/checkout")),
+    ).toBe(false);
+  });
 });
