@@ -7,7 +7,7 @@ import { PricingCards } from "@/components/pricing-cards";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { PromoDiscount } from "@/lib/promo";
-import type { Tier } from "@/lib/tiers";
+import { isCheckoutTier, isPaidTier, type Tier } from "@/lib/tiers";
 
 export const PROMO_CODE_HINT =
   "Optional. We'll apply a valid code automatically at checkout. First-invoice discounts show on the cards; the monthly rate stays the same.";
@@ -106,25 +106,41 @@ export function PricingPageClient() {
       return;
     }
 
+    const switchingPaidPlan =
+      isPaidTier(currentTier) && isCheckoutTier(tier) && tier !== currentTier;
+
     try {
-      const response = await fetch("/api/checkout", {
+      const response = await fetch(switchingPaidPlan ? "/api/portal" : "/api/checkout", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tier,
-          ...(trimmedPromo ? { promoCode: trimmedPromo } : {}),
-        }),
+        headers: switchingPaidPlan
+          ? undefined
+          : { "Content-Type": "application/json" },
+        body: switchingPaidPlan
+          ? undefined
+          : JSON.stringify({
+              tier,
+              ...(trimmedPromo ? { promoCode: trimmedPromo } : {}),
+            }),
       });
 
       const json = await response.json();
 
       if (!response.ok) {
-        throw new Error(json.error ?? "Checkout failed");
+        throw new Error(
+          json.error ??
+            (switchingPaidPlan ? "Failed to open billing portal" : "Checkout failed"),
+        );
       }
 
       window.location.href = json.url;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Checkout failed");
+      setError(
+        err instanceof Error
+          ? err.message
+          : switchingPaidPlan
+            ? "Failed to open billing portal"
+            : "Checkout failed",
+      );
       setLoadingTier(null);
     }
   }

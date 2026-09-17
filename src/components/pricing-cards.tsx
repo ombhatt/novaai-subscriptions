@@ -10,7 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { TIER_LIMITS, type Tier } from "@/lib/tiers";
+import { TIER_LIMITS, compareTiers, type Tier } from "@/lib/tiers";
 import {
   discountedPriceCents,
   formatUsdFromCents,
@@ -82,6 +82,7 @@ export function PricingCards({
       {tierOrder.map((tier) => {
         const details = TIER_LIMITS[tier];
         const isCurrent = currentTier === tier;
+        const isDowngrade = compareTiers(tier, currentTier) < 0;
         const isPopular = tier === "plus";
         const isEnterprise = tier === "enterprise";
 
@@ -132,7 +133,7 @@ export function PricingCards({
               ) : (
                 <Button
                   className="w-full"
-                  variant={isPopular ? "default" : "outline"}
+                  variant={isDowngrade || !isPopular ? "outline" : "default"}
                   disabled={isCurrent || loadingTier === tier}
                   onClick={() => onSelectTier?.(tier)}
                 >
@@ -140,7 +141,9 @@ export function PricingCards({
                     ? "Redirecting…"
                     : isCurrent
                       ? "Current plan"
-                      : `Upgrade to ${details.label}`}
+                      : isDowngrade
+                        ? `Downgrade to ${details.label}`
+                        : `Upgrade to ${details.label}`}
                 </Button>
               )}
             </CardFooter>

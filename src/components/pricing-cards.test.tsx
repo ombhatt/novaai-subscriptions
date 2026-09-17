@@ -43,6 +43,14 @@ describe("PricingCards", () => {
     expect(screen.getByRole("button", { name: "Current plan" })).toBeDisabled();
   });
 
+  it("labels Plus as a downgrade when the current plan is Pro", () => {
+    render(<PricingCards currentTier="pro" />);
+
+    expect(screen.getByRole("button", { name: "Downgrade to Plus" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Current plan" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Upgrade to Plus" })).not.toBeInTheDocument();
+  });
+
   it("calls onSelectTier when upgrading", async () => {
     const user = userEvent.setup();
     const onSelectTier = vi.fn();

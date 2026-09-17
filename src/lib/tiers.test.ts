@@ -4,6 +4,7 @@ import {
   isCheckoutTier,
   isPaidTier,
   tierFromStripePriceId,
+  compareTiers,
   type Tier,
 } from "@/lib/tiers";
 
@@ -64,6 +65,14 @@ describe("isCheckoutTier", () => {
     expect(isCheckoutTier("pro")).toBe(true);
     expect(isCheckoutTier("free")).toBe(false);
     expect(isCheckoutTier("enterprise")).toBe(false);
+  });
+});
+
+describe("compareTiers", () => {
+  it("ranks free < plus < pro < enterprise", () => {
+    expect(compareTiers("plus", "pro")).toBeLessThan(0);
+    expect(compareTiers("pro", "plus")).toBeGreaterThan(0);
+    expect(compareTiers("pro", "pro")).toBe(0);
   });
 });
 
