@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const { pushMock, searchParamsGet } = vi.hoisted(() => ({
@@ -250,11 +250,16 @@ describe("PricingPageClient", () => {
     render(<PricingPageClient />);
     await user.click(screen.getByRole("button", { name: "Contact sales" }));
 
-    expect(await screen.findByTestId("enterprise-inquiry-form")).toBeInTheDocument();
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("Talk to sales");
+    expect(within(dialog).getByTestId("enterprise-inquiry-form")).toBeInTheDocument();
     expect(pushMock).not.toHaveBeenCalled();
     expect(
       fetchMock.mock.calls.some(([url]) => String(url).includes("/api/checkout")),
     ).toBe(false);
+
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("changes an existing Plus subscription to Pro instead of opening checkout or the portal", async () => {
@@ -351,6 +356,44 @@ describe("PricingPageClient", () => {
     ).toBe(true);
     expect(
       fetchMock.mock.calls.some(([url]) => String(url).includes("/api/portal")),
+    ).toBe(false);
+  });
+
+  it("schedules cancel-at-period-end when a Plus customer chooses Cancel to Free", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.spyOn(global, "fetch").mockImplementation((input) => {
+      const url = String(input);
+      if (url.includes("/api/subscription") && !url.includes("/api/subscription/cancel")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ tier: "plus" }), { status: 200 }),
+        );
+      }
+      if (url.includes("/api/subscription/cancel")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ cancelAtPeriodEnd: true }), { status: 200 }),
+        );
+      }
+      return Promise.reject(new Error(`unexpected fetch: ${url}`));
+    });
+
+    const location = { href: "http://localhost/pricing" };
+    vi.stubGlobal("location", location);
+
+    render(<PricingPageClient />);
+    await screen.findByRole("button", { name: "Current plan" });
+    await user.click(screen.getByRole("button", { name: "Cancel to Free" }));
+
+    await waitFor(() => {
+      expect(location.href).toBe("/dashboard");
+    });
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) =>
+          String(url).includes("/api/subscription/cancel") && init?.method === "POST",
+      ),
+    ).toBe(true);
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).includes("/api/checkout")),
     ).toBe(false);
   });
 });
