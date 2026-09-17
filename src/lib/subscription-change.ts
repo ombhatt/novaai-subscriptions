@@ -100,7 +100,8 @@ export async function handleChangePaidPlanRequest(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { tier } = (await request.json()) as { tier?: unknown };
+  const body = (await request.json()) as { tier?: unknown };
+  const tier = typeof body.tier === "string" ? body.tier : undefined;
 
   if (!isCheckoutTier(tier)) {
     return NextResponse.json({ error: "Invalid tier for plan change." }, { status: 400 });
