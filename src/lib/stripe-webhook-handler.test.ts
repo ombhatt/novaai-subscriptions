@@ -274,7 +274,7 @@ describe("handleStripeWebhookEvent", () => {
     expect(supabase.from).toHaveBeenCalledWith("subscriptions");
   });
 
-  it("upserts on subscription.updated when still active", async () => {
+  it("re-fetches subscription.updated state before upserting", async () => {
     const supabase = createSupabaseMock({
       fromResults: {
         stripe_webhook_events: { data: null, error: null },
@@ -282,15 +282,40 @@ describe("handleStripeWebhookEvent", () => {
       },
     });
     createAdminClientMock.mockReturnValue(supabase);
+    const currentSubscription = makeStripeSubscription({
+      cancel_at_period_end: false,
+    });
+    const retrieve = vi.fn().mockResolvedValue(currentSubscription);
+    getStripeMock.mockReturnValue({
+      subscriptions: { retrieve },
+    });
 
     await handleStripeWebhookEvent(
       makeEvent(
         "customer.subscription.updated",
-        makeStripeSubscription({ status: "active" }),
+        makeStripeSubscription({
+          cancel_at_period_end: true,
+          items: {
+            data: [
+              {
+                id: "si_1",
+                price: { id: "price_pro_test" },
+                current_period_start: 1_700_000_000,
+                current_period_end: 1_702_592_000,
+              },
+            ],
+          },
+        }),
       ),
     );
 
-    expect(supabase.from).toHaveBeenCalledWith("subscriptions");
+    expect(retrieve).toHaveBeenCalledWith("sub_123");
+    expect(supabase.builders.subscriptions.builder.lastUpsert).toEqual(
+      expect.objectContaining({
+        tier: "plus",
+        cancel_at_period_end: false,
+      }),
+    );
   });
 
   it("downgrades when subscription.updated status is canceled", async () => {
@@ -301,14 +326,21 @@ describe("handleStripeWebhookEvent", () => {
       },
     });
     createAdminClientMock.mockReturnValue(supabase);
+    const retrieve = vi
+      .fn()
+      .mockResolvedValue(makeStripeSubscription({ status: "canceled" }));
+    getStripeMock.mockReturnValue({
+      subscriptions: { retrieve },
+    });
 
     await handleStripeWebhookEvent(
       makeEvent(
         "customer.subscription.updated",
-        makeStripeSubscription({ status: "canceled" }),
+        makeStripeSubscription({ status: "active" }),
       ),
     );
 
+    expect(retrieve).toHaveBeenCalledWith("sub_123");
     expect(supabase.from).toHaveBeenCalledWith("subscriptions");
   });
 
