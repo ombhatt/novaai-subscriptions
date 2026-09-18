@@ -69,7 +69,6 @@ export async function changePaidSubscriptionTier(
     subscription.stripe_subscription_id,
     {
       items: [{ id: itemId, price: priceId }],
-      cancel_at_period_end: false,
       proration_behavior: "create_prorations",
     },
   )) as Stripe.Subscription;
