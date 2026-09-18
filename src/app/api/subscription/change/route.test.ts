@@ -88,7 +88,6 @@ describe("POST /api/subscription/change", () => {
     });
     expect(update).toHaveBeenCalledWith("sub_1", {
       items: [{ id: "si_plus", price: "price_pro" }],
-      cancel_at_period_end: false,
       proration_behavior: "create_prorations",
     });
     expect(update.mock.calls[0]?.[1]).not.toHaveProperty("flow_data");
