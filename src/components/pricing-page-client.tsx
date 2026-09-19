@@ -67,6 +67,10 @@ export function PricingPageClient() {
                 json.duration === "repeating" || json.duration === "forever"
                   ? json.duration
                   : "once",
+              durationInMonths:
+                typeof json.durationInMonths === "number"
+                  ? json.durationInMonths
+                  : null,
             },
           });
         })

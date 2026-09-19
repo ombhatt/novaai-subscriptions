@@ -55,6 +55,12 @@ function TierPrice({
             <p className="text-sm text-muted-foreground">
               first invoice, then ${priceMonthly}/mo
             </p>
+          ) : promoDiscount.duration === "repeating" ? (
+            <p className="text-sm text-muted-foreground">
+              {promoDiscount.durationInMonths
+                ? `for ${promoDiscount.durationInMonths} months, then $${priceMonthly}/mo`
+                : `limited time, then $${priceMonthly}/mo`}
+            </p>
           ) : (
             <span className="text-muted-foreground">/month</span>
           )}

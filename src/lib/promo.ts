@@ -4,6 +4,7 @@ export interface PromoDiscount {
   percentOff: number | null;
   amountOffCents: number | null;
   duration: PromoDuration;
+  durationInMonths: number | null;
 }
 
 export interface InvoiceSnapshot {

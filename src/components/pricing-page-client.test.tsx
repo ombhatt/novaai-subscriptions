@@ -63,6 +63,7 @@ describe("PricingPageClient", () => {
               percentOff: 20,
               amountOffCents: null,
               duration: "once",
+              durationInMonths: null,
             }),
             { status: 200 },
           ),

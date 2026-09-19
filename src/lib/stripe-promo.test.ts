@@ -38,6 +38,7 @@ describe("stripe promo helpers", () => {
                   percent_off: 20,
                   amount_off: null,
                   duration: "once",
+                  duration_in_months: null,
                 },
               },
             },
@@ -51,6 +52,39 @@ describe("stripe promo helpers", () => {
       percentOff: 20,
       amountOffCents: null,
       duration: "once",
+      durationInMonths: null,
+    });
+  });
+
+  it("preserves the month count for a repeating coupon", async () => {
+    const stripe = {
+      promotionCodes: {
+        list: vi.fn().mockResolvedValue({
+          data: [
+            {
+              id: "promo_three_months",
+              promotion: {
+                type: "coupon",
+                coupon: {
+                  object: "coupon",
+                  percent_off: 20,
+                  amount_off: null,
+                  duration: "repeating",
+                  duration_in_months: 3,
+                },
+              },
+            },
+          ],
+        }),
+      },
+    } as never;
+
+    await expect(getPromotionDiscount(stripe, "THREEMONTHS")).resolves.toEqual({
+      promotionCodeId: "promo_three_months",
+      percentOff: 20,
+      amountOffCents: null,
+      duration: "repeating",
+      durationInMonths: 3,
     });
   });
 
@@ -64,6 +98,9 @@ describe("stripe promo helpers", () => {
       totalCents: 1600,
       subtotalCents: 2000,
     });
-    expect(list).toHaveBeenCalledWith({ customer: "cus_1", limit: 1 });
+    expect(list).toHaveBeenCalledWith(
+      { customer: "cus_1", limit: 1 },
+      { maxNetworkRetries: 0, timeout: 2_000 },
+    );
   });
 });
