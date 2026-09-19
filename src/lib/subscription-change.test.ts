@@ -54,7 +54,7 @@ describe("changePaidSubscriptionTier", () => {
     });
   });
 
-  it("updates the existing Plus subscription to the Pro price", async () => {
+  it("charges an upgrade immediately before persisting the Pro price", async () => {
     const retrieve = vi.fn().mockResolvedValue({
       id: "sub_stripe",
       items: { data: [{ id: "si_plus", price: { id: "price_plus" } }] },
@@ -78,11 +78,59 @@ describe("changePaidSubscriptionTier", () => {
     expect(update).toHaveBeenCalledWith("sub_stripe", {
       items: [{ id: "si_plus", price: "price_pro" }],
       cancel_at_period_end: false,
-      proration_behavior: "create_prorations",
+      payment_behavior: "error_if_incomplete",
+      proration_behavior: "always_invoice",
     });
     expect(upsertMock).toHaveBeenCalledWith("user-1", "cus_1", {
       id: "sub_stripe",
       items: { data: [{ id: "si_plus", price: { id: "price_pro" } }] },
     });
+  });
+
+  it("leaves downgrade credits on the next invoice", async () => {
+    const retrieve = vi.fn().mockResolvedValue({
+      id: "sub_stripe",
+      items: { data: [{ id: "si_pro", price: { id: "price_pro" } }] },
+    });
+    const update = vi.fn().mockResolvedValue({
+      id: "sub_stripe",
+      items: { data: [{ id: "si_pro", price: { id: "price_plus" } }] },
+    });
+    getStripeMock.mockReturnValue({ subscriptions: { retrieve, update } });
+
+    const subscription = makeSubscription({
+      tier: "pro",
+      stripe_customer_id: "cus_1",
+      stripe_subscription_id: "sub_stripe",
+    }) as Subscription;
+
+    await expect(changePaidSubscriptionTier(subscription, "plus")).resolves.toEqual({
+      ok: true,
+    });
+    expect(update).toHaveBeenCalledWith("sub_stripe", {
+      items: [{ id: "si_pro", price: "price_plus" }],
+      cancel_at_period_end: false,
+      proration_behavior: "create_prorations",
+    });
+  });
+
+  it("does not grant Pro when Stripe cannot collect the upgrade invoice", async () => {
+    const retrieve = vi.fn().mockResolvedValue({
+      id: "sub_stripe",
+      items: { data: [{ id: "si_plus", price: { id: "price_plus" } }] },
+    });
+    const update = vi.fn().mockRejectedValue(new Error("card declined"));
+    getStripeMock.mockReturnValue({ subscriptions: { retrieve, update } });
+
+    const subscription = makeSubscription({
+      tier: "plus",
+      stripe_customer_id: "cus_1",
+      stripe_subscription_id: "sub_stripe",
+    }) as Subscription;
+
+    await expect(changePaidSubscriptionTier(subscription, "pro")).rejects.toThrow(
+      "card declined",
+    );
+    expect(upsertMock).not.toHaveBeenCalled();
   });
 });
