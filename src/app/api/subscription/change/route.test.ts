@@ -131,4 +131,42 @@ describe("POST /api/subscription/change", () => {
     expect(getStripeMock).not.toHaveBeenCalled();
     expect(upsertMock).not.toHaveBeenCalled();
   });
+
+  it("does not create prorations for a past-due subscription", async () => {
+    isStripeConfiguredMock.mockReturnValue(true);
+    createClientMock.mockResolvedValue(
+      createSupabaseMock({
+        fromResults: {
+          subscriptions: {
+            data: makeSubscription({
+              tier: "pro",
+              status: "past_due",
+              stripe_customer_id: "cus_1",
+              stripe_subscription_id: "sub_1",
+              current_period_start: "2026-09-15T00:00:00.000Z",
+            }),
+            error: null,
+          },
+          usage_counters: {
+            data: { request_count: 10_000 },
+            error: null,
+          },
+        },
+      }),
+    );
+
+    const response = await POST(
+      new Request("http://localhost/api/subscription/change", {
+        method: "POST",
+        body: JSON.stringify({ tier: "plus" }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: "Resolve your outstanding billing issue before changing plans.",
+    });
+    expect(getStripeMock).not.toHaveBeenCalled();
+    expect(upsertMock).not.toHaveBeenCalled();
+  });
 });

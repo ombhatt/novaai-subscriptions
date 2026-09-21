@@ -56,6 +56,27 @@ describe("changePaidSubscriptionTier", () => {
     });
   });
 
+  it("rejects plan changes while the subscription is past due", async () => {
+    const result = await changePaidSubscriptionTier(
+      makeSubscription({
+        tier: "pro",
+        status: "past_due",
+        stripe_customer_id: "cus_1",
+        stripe_subscription_id: "sub_stripe",
+      }) as Subscription,
+      "plus",
+      10_000,
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      status: 409,
+      error: "Resolve your outstanding billing issue before changing plans.",
+    });
+    expect(getStripeMock).not.toHaveBeenCalled();
+    expect(upsertMock).not.toHaveBeenCalled();
+  });
+
   it("updates the existing Plus subscription to the Pro price", async () => {
     const retrieve = vi.fn().mockResolvedValue({
       id: "sub_stripe",

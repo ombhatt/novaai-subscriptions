@@ -20,7 +20,7 @@ export type ChangePaidPlanResult =
 export async function changePaidSubscriptionTier(
   subscription: Pick<
     Subscription,
-    "user_id" | "tier" | "stripe_customer_id" | "stripe_subscription_id"
+    "user_id" | "tier" | "status" | "stripe_customer_id" | "stripe_subscription_id"
   >,
   tier: CheckoutTier,
   usageCount: number,
@@ -42,6 +42,14 @@ export async function changePaidSubscriptionTier(
       ok: false,
       status: 400,
       error: "Already on this plan.",
+    };
+  }
+
+  if (subscription.status !== "active" && subscription.status !== "trialing") {
+    return {
+      ok: false,
+      status: 409,
+      error: "Resolve your outstanding billing issue before changing plans.",
     };
   }
 
@@ -135,7 +143,10 @@ export async function handleChangePaidPlanRequest(request: Request) {
   }
 
   let usageCount = 0;
-  if (compareTiers(tier, subscription.tier) < 0) {
+  if (
+    (subscription.status === "active" || subscription.status === "trialing") &&
+    compareTiers(tier, subscription.tier) < 0
+  ) {
     const { data: usage, error: usageError } = await supabase
       .from("usage_counters")
       .select("request_count")
