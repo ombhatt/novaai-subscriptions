@@ -5,6 +5,7 @@ import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { createClient } from "@/lib/supabase/server";
 import { upsertSubscriptionFromStripe } from "@/lib/stripe-webhook-handler";
 import {
+  compareTiers,
   isCheckoutTier,
   isPaidTier,
   stripePriceIdForTier,
@@ -65,12 +66,15 @@ export async function changePaidSubscriptionTier(
     };
   }
 
+  const isUpgrade = compareTiers(tier, subscription.tier) > 0;
+  const updateParams: Stripe.SubscriptionUpdateParams = {
+    items: [{ id: itemId, price: priceId }],
+    proration_behavior: isUpgrade ? "always_invoice" : "create_prorations",
+    ...(isUpgrade ? { payment_behavior: "error_if_incomplete" } : {}),
+  };
   const updated = (await stripe.subscriptions.update(
     subscription.stripe_subscription_id,
-    {
-      items: [{ id: itemId, price: priceId }],
-      proration_behavior: "create_prorations",
-    },
+    updateParams,
   )) as Stripe.Subscription;
 
   await upsertSubscriptionFromStripe(

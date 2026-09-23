@@ -31,6 +31,7 @@ describe("PricingCards", () => {
           percentOff: 20,
           amountOffCents: null,
           duration: "once",
+          durationInMonths: null,
         }}
       />,
     );
@@ -40,6 +41,21 @@ describe("PricingCards", () => {
     expect(screen.getByText("$20")).toBeInTheDocument();
     expect(screen.getByText("$99")).toBeInTheDocument();
     expect(screen.getAllByText(/first invoice/i)).toHaveLength(2);
+  });
+
+  it("shows when a repeating promo expires", () => {
+    render(
+      <PricingCards
+        promoDiscount={{
+          percentOff: 20,
+          amountOffCents: null,
+          duration: "repeating",
+          durationInMonths: 3,
+        }}
+      />,
+    );
+
+    expect(screen.getAllByText(/for 3 months, then/i)).toHaveLength(2);
   });
 
   it("marks the current tier", () => {

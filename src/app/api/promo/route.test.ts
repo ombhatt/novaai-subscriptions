@@ -49,6 +49,7 @@ describe("GET /api/promo", () => {
                   percent_off: 20,
                   amount_off: null,
                   duration: "once",
+                  duration_in_months: null,
                 },
               },
             },
@@ -66,6 +67,7 @@ describe("GET /api/promo", () => {
       percentOff: 20,
       amountOffCents: null,
       duration: "once",
+      durationInMonths: null,
     });
   });
 });
