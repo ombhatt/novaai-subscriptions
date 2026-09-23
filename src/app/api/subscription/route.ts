@@ -5,6 +5,9 @@ import {
   usagePeriodStart,
   type Subscription,
 } from "@/lib/entitlements";
+import type { InvoiceSnapshot } from "@/lib/promo";
+import { getStripe, isStripeConfigured } from "@/lib/stripe";
+import { getLatestInvoiceSnapshot } from "@/lib/stripe-promo";
 import { TIER_LIMITS } from "@/lib/tiers";
 
 export async function GET() {
@@ -37,6 +40,16 @@ export async function GET() {
     usage?.request_count ?? 0,
   );
 
+  let lastInvoice: InvoiceSnapshot | null = null;
+  const customerId = (subscription as Subscription | null)?.stripe_customer_id;
+  if (customerId && isStripeConfigured()) {
+    try {
+      lastInvoice = await getLatestInvoiceSnapshot(getStripe(), customerId);
+    } catch {
+      lastInvoice = null;
+    }
+  }
+
   return NextResponse.json({
     subscription,
     usage: entitlement.usage,
@@ -45,5 +58,6 @@ export async function GET() {
     tier: entitlement.tier,
     status: entitlement.status,
     tierDetails: TIER_LIMITS[entitlement.tier],
+    lastInvoice,
   });
 }

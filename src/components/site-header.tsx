@@ -1,11 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { Sparkles } from "lucide-react";
+
+type MeUser = { id: string; email?: string | null };
 
 const navLinks = [
   { href: "/pricing", label: "Pricing" },
@@ -15,7 +18,38 @@ const navLinks = [
 export function SiteHeader() {
   const pathname = usePathname();
   const [menuOpenFor, setMenuOpenFor] = useState<string | null>(null);
+  const [user, setUser] = useState<MeUser | null>(null);
+  const [authReady, setAuthReady] = useState(false);
   const menuOpen = menuOpenFor === pathname;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch("/api/me")
+      .then((res) => (res.ok ? res.json() : { user: null }))
+      .then((data: { user?: MeUser | null }) => {
+        if (!cancelled) setUser(data.user ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setUser(null);
+      })
+      .finally(() => {
+        if (!cancelled) setAuthReady(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleSignOut() {
+    try {
+      await createClient().auth.signOut();
+    } catch {
+      // Still send the user home if the client is misconfigured.
+    }
+    window.location.assign("/");
+  }
 
   return (
     <header className="border-b bg-background/80 backdrop-blur-sm sticky top-0 z-50">
@@ -66,12 +100,20 @@ export function SiteHeader() {
           >
             {menuOpen ? "Close menu" : "Open menu"}
           </Button>
-          <Link href="/login" className={buttonVariants({ variant: "ghost", size: "sm" })}>
-            Log in
-          </Link>
-          <Link href="/signup" className={buttonVariants({ size: "sm" })}>
-            Get started
-          </Link>
+          {authReady && user ? (
+            <Button type="button" variant="ghost" size="sm" onClick={handleSignOut}>
+              Sign out
+            </Button>
+          ) : authReady ? (
+            <>
+              <Link href="/login" className={buttonVariants({ variant: "ghost", size: "sm" })}>
+                Log in
+              </Link>
+              <Link href="/signup" className={buttonVariants({ size: "sm" })}>
+                Get started
+              </Link>
+            </>
+          ) : null}
         </div>
       </div>
     </header>

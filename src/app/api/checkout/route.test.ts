@@ -204,6 +204,7 @@ describe("POST /api/checkout", () => {
       code: "welcome20",
       active: true,
       limit: 1,
+      expand: ["data.promotion.coupon"],
     });
     expect(createSession).toHaveBeenCalledWith(
       expect.objectContaining({
