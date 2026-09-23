@@ -1,6 +1,9 @@
 import { Suspense } from "react";
 import { SiteHeader } from "@/components/site-header";
-import { PricingPageClient } from "@/components/pricing-page-client";
+import {
+  PricingPageClient,
+  PROMO_CODE_HINT,
+} from "@/components/pricing-page-client";
 import { PricingCards } from "@/components/pricing-cards";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,7 +22,7 @@ function PricingFallback() {
           aria-describedby="promo-code-hint"
         />
         <p id="promo-code-hint" className="mt-1 text-xs text-muted-foreground">
-          Optional. The discount is applied on the Stripe checkout page.
+          {PROMO_CODE_HINT}
         </p>
       </div>
       <PricingCards />

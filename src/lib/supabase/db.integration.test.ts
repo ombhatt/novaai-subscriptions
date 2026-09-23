@@ -169,6 +169,38 @@ describe.skipIf(!enabled)("consume_rate_limit", () => {
     expect(row?.request_count).toBe(2);
   });
 
+  it("removes expired windows when consuming the current window", async () => {
+    const user = await makeUser();
+    const admin = adminClient();
+    const expiredWindow = new Date(Date.now() - 60 * 60 * 1_000).toISOString();
+
+    const { error: insertError } = await admin.from("rate_limit_windows").insert({
+      user_id: user.id,
+      window_start: expiredWindow,
+      request_count: 1,
+    });
+    expect(insertError).toBeNull();
+
+    const consumed = await admin.rpc("consume_rate_limit", {
+      p_user_id: user.id,
+      p_limit: 10,
+    });
+    expect(consumed.error).toBeNull();
+    expect(consumed.data).toBe(1);
+
+    const { data: rows, error } = await admin
+      .from("rate_limit_windows")
+      .select("window_start, request_count")
+      .eq("user_id", user.id);
+
+    expect(error).toBeNull();
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0]?.request_count).toBe(1);
+    expect(new Date(rows?.[0]?.window_start ?? 0).getTime()).toBeGreaterThan(
+      new Date(expiredWindow).getTime(),
+    );
+  });
+
   it("is not executable by an authenticated user", async () => {
     const user = await makeUser();
     const client = await signInUser(user.email, user.password);
