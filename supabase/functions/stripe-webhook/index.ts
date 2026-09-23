@@ -36,7 +36,6 @@ function mapStripeStatus(status: Stripe.Subscription.Status): SubscriptionStatus
     case "active":
       return "active";
     case "past_due":
-    case "unpaid":
       return "past_due";
     case "canceled":
       return "canceled";
@@ -45,17 +44,6 @@ function mapStripeStatus(status: Stripe.Subscription.Status): SubscriptionStatus
     default:
       return "incomplete";
   }
-}
-
-function getInvoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
-  const parent = invoice.parent as
-    | { subscription_details?: { subscription?: string | { id?: string } } }
-    | null
-    | undefined;
-  const parentSub = parent?.subscription_details?.subscription;
-  const legacySub = (invoice as { subscription?: string | { id?: string } }).subscription;
-  const rawSub = parentSub ?? legacySub;
-  return typeof rawSub === "string" ? rawSub : rawSub?.id ?? null;
 }
 
 const GRACE_PERIOD_DAYS = 7;
@@ -257,13 +245,6 @@ async function processEvent(event: Stripe.Event) {
       const userId = await findUserId(customerId);
       if (!userId) break;
 
-      const subscriptionId = getInvoiceSubscriptionId(invoice);
-      if (subscriptionId) {
-        const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-        await upsertSubscription(userId, customerId, subscription);
-        break;
-      }
-
       const gracePeriodEndsAt = nextGracePeriodEndsAt(
         await existingGracePeriodEndsAt(userId),
         "past_due",
@@ -291,7 +272,15 @@ async function processEvent(event: Stripe.Event) {
       const userId = await findUserId(customerId);
       if (!userId) break;
 
-      const subscriptionId = getInvoiceSubscriptionId(invoice);
+      const parent = invoice.parent as
+        | { subscription_details?: { subscription?: string | { id?: string } } }
+        | null
+        | undefined;
+      const parentSub = parent?.subscription_details?.subscription;
+      const legacySub = (invoice as { subscription?: string | { id?: string } }).subscription;
+      const rawSub = parentSub ?? legacySub;
+      const subscriptionId =
+        typeof rawSub === "string" ? rawSub : rawSub?.id ?? null;
 
       if (subscriptionId) {
         const subscription = await stripe.subscriptions.retrieve(subscriptionId);
