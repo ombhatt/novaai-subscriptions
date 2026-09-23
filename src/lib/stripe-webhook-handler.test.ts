@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type Stripe from "stripe";
-import { createSupabaseMock } from "@/test/mocks/supabase";
+import { createQueryBuilder, createSupabaseMock } from "@/test/mocks/supabase";
 
 const { createAdminClientMock, getStripeMock } = vi.hoisted(() => ({
   createAdminClientMock: vi.fn(),
@@ -60,14 +60,19 @@ describe("handleStripeWebhookEvent", () => {
   });
 
   it("skips duplicate webhook events (idempotent)", async () => {
-    const supabase = createSupabaseMock({
-      fromResults: {
-        stripe_webhook_events: {
-          data: null,
-          error: { message: "duplicate", code: "23505" },
-        },
-      },
+    const insert = createQueryBuilder({
+      data: null,
+      error: { message: "duplicate", code: "23505" },
     });
+    const lookup = createQueryBuilder({
+      data: { processed_at: "2026-09-12T10:00:00.000Z" },
+      error: null,
+    });
+    const from = vi
+      .fn()
+      .mockReturnValueOnce(insert.builder)
+      .mockReturnValueOnce(lookup.builder);
+    const supabase = { from };
     createAdminClientMock.mockReturnValue(supabase);
 
     await expect(
@@ -76,8 +81,36 @@ describe("handleStripeWebhookEvent", () => {
       ),
     ).resolves.toBeUndefined();
 
-    expect(supabase.from).toHaveBeenCalledWith("stripe_webhook_events");
-    expect(supabase.from).not.toHaveBeenCalledWith("subscriptions");
+    expect(from).toHaveBeenCalledTimes(2);
+    expect(lookup.builder.select).toHaveBeenCalledWith("processed_at");
+  });
+
+  it("retries a duplicate event whose processing never completed", async () => {
+    const insert = createQueryBuilder({
+      data: null,
+      error: { message: "duplicate", code: "23505" },
+    });
+    const lookup = createQueryBuilder({
+      data: { processed_at: null },
+      error: null,
+    });
+    const complete = createQueryBuilder({ data: null, error: null });
+    const from = vi
+      .fn()
+      .mockReturnValueOnce(insert.builder)
+      .mockReturnValueOnce(lookup.builder)
+      .mockReturnValueOnce(complete.builder);
+    const supabase = { from };
+    createAdminClientMock.mockReturnValue(supabase);
+
+    await expect(
+      handleStripeWebhookEvent(makeEvent("ping", {}, "evt_incomplete")),
+    ).resolves.toBeUndefined();
+
+    expect(complete.builder.update).toHaveBeenCalledWith({
+      processed_at: expect.any(String),
+    });
+    expect(complete.builder.eq).toHaveBeenCalledWith("id", "evt_incomplete");
   });
 
   it("upserts subscription on checkout.session.completed", async () => {
@@ -134,7 +167,13 @@ describe("handleStripeWebhookEvent", () => {
     const supabase = createSupabaseMock({
       fromResults: {
         stripe_webhook_events: { data: null, error: null },
-        subscriptions: { data: { user_id: "user-1" }, error: null },
+        subscriptions: {
+          data: {
+            user_id: "user-1",
+            stripe_subscription_id: "sub_123",
+          },
+          error: null,
+        },
       },
     });
     createAdminClientMock.mockReturnValue(supabase);
@@ -151,6 +190,37 @@ describe("handleStripeWebhookEvent", () => {
         status: "active",
       }),
     );
+    expect(supabase.builders.subscriptions.builder.eq).toHaveBeenCalledWith(
+      "stripe_subscription_id",
+      "sub_123",
+    );
+  });
+
+  it("ignores a delayed deletion for an older subscription", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        stripe_webhook_events: { data: null, error: null },
+        subscriptions: {
+          data: {
+            user_id: "user-1",
+            status: "active",
+            grace_period_ends_at: null,
+            stripe_subscription_id: "sub_new",
+          },
+          error: null,
+        },
+      },
+    });
+    createAdminClientMock.mockReturnValue(supabase);
+
+    await handleStripeWebhookEvent(
+      makeEvent(
+        "customer.subscription.deleted",
+        makeStripeSubscription({ id: "sub_old" }),
+      ),
+    );
+
+    expect(supabase.builders.subscriptions.builder.lastUpdate).toBeUndefined();
   });
 
   it("preserves paid access when Stripe cancels during dunning grace", async () => {
@@ -164,6 +234,7 @@ describe("handleStripeWebhookEvent", () => {
             user_id: "user-1",
             status: "past_due",
             grace_period_ends_at: "2026-09-11T12:00:00.000Z",
+            stripe_subscription_id: "sub_123",
           },
           error: null,
         },
@@ -226,7 +297,7 @@ describe("handleStripeWebhookEvent", () => {
     );
   });
 
-  it("marks subscription active on invoice.paid when there is no subscription id", async () => {
+  it("ignores invoice.paid when there is no subscription id", async () => {
     const supabase = createSupabaseMock({
       fromResults: {
         stripe_webhook_events: { data: null, error: null },
@@ -241,12 +312,7 @@ describe("handleStripeWebhookEvent", () => {
 
     expect(supabase.from).toHaveBeenCalledWith("subscriptions");
     expect(getStripeMock).not.toHaveBeenCalled();
-    expect(supabase.builders.subscriptions.builder.lastUpdate).toEqual(
-      expect.objectContaining({
-        status: "active",
-        grace_period_ends_at: null,
-      }),
-    );
+    expect(supabase.builders.subscriptions.builder.lastUpdate).toBeUndefined();
   });
 
   it("refreshes billing period on invoice.paid when a subscription is present", async () => {
@@ -322,7 +388,13 @@ describe("handleStripeWebhookEvent", () => {
     const supabase = createSupabaseMock({
       fromResults: {
         stripe_webhook_events: { data: null, error: null },
-        subscriptions: { data: { user_id: "user-1" }, error: null },
+        subscriptions: {
+          data: {
+            user_id: "user-1",
+            stripe_subscription_id: "sub_123",
+          },
+          error: null,
+        },
       },
     });
     createAdminClientMock.mockReturnValue(supabase);

@@ -29,10 +29,21 @@ async function recordWebhookEvent(eventId: string, eventType: string): Promise<b
   const { error } = await supabase.from("stripe_webhook_events").insert({
     id: eventId,
     event_type: eventType,
+    processed_at: null,
   });
 
   if (error?.code === "23505") {
-    return false;
+    const { data, error: lookupError } = await supabase
+      .from("stripe_webhook_events")
+      .select("processed_at")
+      .eq("id", eventId)
+      .maybeSingle();
+
+    if (lookupError) {
+      throw new Error(`Failed to inspect webhook event: ${lookupError.message}`);
+    }
+
+    return data?.processed_at == null;
   }
 
   if (error) {
@@ -40,6 +51,18 @@ async function recordWebhookEvent(eventId: string, eventType: string): Promise<b
   }
 
   return true;
+}
+
+async function completeWebhookEvent(eventId: string): Promise<void> {
+  const supabase = createAdminClient();
+  const { error } = await supabase
+    .from("stripe_webhook_events")
+    .update({ processed_at: new Date().toISOString() })
+    .eq("id", eventId);
+
+  if (error) {
+    throw new Error(`Failed to complete webhook event: ${error.message}`);
+  }
 }
 
 async function releaseWebhookEvent(eventId: string): Promise<void> {
@@ -122,11 +145,15 @@ export async function upsertSubscriptionFromStripe(
   }
 }
 
-export async function downgradeToFree(userId: string, customerId?: string) {
+export async function downgradeToFree(
+  userId: string,
+  customerId?: string,
+  expectedSubscriptionId?: string,
+) {
   const supabase = createAdminClient();
   const { data: subscription, error: lookupError } = await supabase
     .from("subscriptions")
-    .select("status, grace_period_ends_at")
+    .select("status, grace_period_ends_at, stripe_subscription_id")
     .eq("user_id", userId)
     .maybeSingle();
 
@@ -134,11 +161,18 @@ export async function downgradeToFree(userId: string, customerId?: string) {
     throw new Error(`Failed to check dunning grace: ${lookupError.message}`);
   }
 
+  if (
+    expectedSubscriptionId &&
+    subscription?.stripe_subscription_id !== expectedSubscriptionId
+  ) {
+    return;
+  }
+
   if (isWithinDunningGrace(subscription)) {
     return;
   }
 
-  const { error } = await supabase
+  let update = supabase
     .from("subscriptions")
     .update({
       tier: "free",
@@ -152,6 +186,12 @@ export async function downgradeToFree(userId: string, customerId?: string) {
       ...(customerId ? { stripe_customer_id: customerId } : {}),
     })
     .eq("user_id", userId);
+
+  if (expectedSubscriptionId) {
+    update = update.eq("stripe_subscription_id", expectedSubscriptionId);
+  }
+
+  const { error } = await update;
 
   if (error) {
     throw new Error(`Failed to downgrade subscription: ${error.message}`);
@@ -195,7 +235,7 @@ async function processStripeWebhookEvent(event: Stripe.Event): Promise<void> {
       }
 
       if (subscription.status === "canceled") {
-        await downgradeToFree(userId, customerId);
+        await downgradeToFree(userId, customerId, subscription.id);
       } else {
         await upsertSubscriptionFromStripe(userId, customerId, subscription);
       }
@@ -214,7 +254,7 @@ async function processStripeWebhookEvent(event: Stripe.Event): Promise<void> {
         throw new Error(`No user found for customer ${customerId}`);
       }
 
-      await downgradeToFree(userId, customerId);
+      await downgradeToFree(userId, customerId, subscription.id);
       break;
     }
 
@@ -264,21 +304,6 @@ async function processStripeWebhookEvent(event: Stripe.Event): Promise<void> {
         const stripe = await import("@/lib/stripe").then((m) => m.getStripe());
         const subscription = await stripe.subscriptions.retrieve(subscriptionId);
         await upsertSubscriptionFromStripe(userId, customerId, subscription);
-        break;
-      }
-
-      const supabase = createAdminClient();
-      const { error } = await supabase
-        .from("subscriptions")
-        .update({
-          status: "active",
-          grace_period_ends_at: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("user_id", userId);
-
-      if (error) {
-        throw new Error(`Failed to mark subscription active: ${error.message}`);
       }
       break;
     }
@@ -296,6 +321,7 @@ export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<voi
 
   try {
     await processStripeWebhookEvent(event);
+    await completeWebhookEvent(event.id);
   } catch (error) {
     try {
       await releaseWebhookEvent(event.id);
