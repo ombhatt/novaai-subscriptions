@@ -241,7 +241,8 @@ async function processEvent(event: Stripe.Event) {
     }
 
     case "customer.subscription.updated": {
-      const subscription = event.data.object as Stripe.Subscription;
+      const eventSubscription = event.data.object as Stripe.Subscription;
+      const subscription = await stripe.subscriptions.retrieve(eventSubscription.id);
       const customerId =
         typeof subscription.customer === "string"
           ? subscription.customer

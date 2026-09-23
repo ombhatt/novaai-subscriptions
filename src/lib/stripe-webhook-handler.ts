@@ -221,7 +221,9 @@ async function processStripeWebhookEvent(event: Stripe.Event): Promise<void> {
     }
 
     case "customer.subscription.updated": {
-      const subscription = event.data.object as Stripe.Subscription;
+      const eventSubscription = event.data.object as Stripe.Subscription;
+      const stripe = await import("@/lib/stripe").then((m) => m.getStripe());
+      const subscription = await stripe.subscriptions.retrieve(eventSubscription.id);
       const customerId =
         typeof subscription.customer === "string"
           ? subscription.customer

@@ -54,9 +54,10 @@ describe("changePaidSubscriptionTier", () => {
     });
   });
 
-  it("updates the existing Plus subscription to the Pro price", async () => {
+  it("updates the price without reversing a scheduled cancellation", async () => {
     const retrieve = vi.fn().mockResolvedValue({
       id: "sub_stripe",
+      cancel_at_period_end: true,
       items: { data: [{ id: "si_plus", price: { id: "price_plus" } }] },
     });
     const update = vi.fn().mockResolvedValue({
@@ -77,7 +78,6 @@ describe("changePaidSubscriptionTier", () => {
     expect(retrieve).toHaveBeenCalledWith("sub_stripe");
     expect(update).toHaveBeenCalledWith("sub_stripe", {
       items: [{ id: "si_plus", price: "price_pro" }],
-      cancel_at_period_end: false,
       proration_behavior: "create_prorations",
     });
     expect(upsertMock).toHaveBeenCalledWith("user-1", "cus_1", {
