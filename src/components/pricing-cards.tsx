@@ -111,7 +111,7 @@ export function PricingCards({
                 <div className="pt-2">
                   <TierPrice
                     priceMonthly={details.priceMonthly}
-                    promoDiscount={promoDiscount}
+                    promoDiscount={isPaidTier(currentTier) ? null : promoDiscount}
                   />
                 </div>
               </CardHeader>
