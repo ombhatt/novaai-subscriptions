@@ -45,17 +45,26 @@ export async function getPromotionDiscount(
     percentOff: coupon.percent_off,
     amountOffCents: coupon.amount_off,
     duration: promoDuration(coupon.duration),
+    durationInMonths: coupon.duration_in_months,
   };
 }
+
+const INVOICE_LOOKUP_TIMEOUT_MS = 2_000;
 
 export async function getLatestInvoiceSnapshot(
   stripe: Stripe,
   customerId: string,
 ): Promise<InvoiceSnapshot | null> {
-  const { data } = await stripe.invoices.list({
-    customer: customerId,
-    limit: 1,
-  });
+  const { data } = await stripe.invoices.list(
+    {
+      customer: customerId,
+      limit: 1,
+    },
+    {
+      maxNetworkRetries: 0,
+      timeout: INVOICE_LOOKUP_TIMEOUT_MS,
+    },
+  );
   const invoice = data[0];
   if (!invoice) return null;
   return {

@@ -31,6 +31,7 @@ describe("PricingCards", () => {
           percentOff: 20,
           amountOffCents: null,
           duration: "once",
+          durationInMonths: null,
         }}
       />,
     );
@@ -42,6 +43,21 @@ describe("PricingCards", () => {
     expect(screen.getAllByText(/first invoice/i)).toHaveLength(2);
   });
 
+  it("shows when a repeating promo expires", () => {
+    render(
+      <PricingCards
+        promoDiscount={{
+          percentOff: 20,
+          amountOffCents: null,
+          duration: "repeating",
+          durationInMonths: 3,
+        }}
+      />,
+    );
+
+    expect(screen.getAllByText(/for 3 months, then/i)).toHaveLength(2);
+  });
+
   it("does not advertise checkout promos on paid plan changes", () => {
     render(
       <PricingCards
@@ -50,6 +66,7 @@ describe("PricingCards", () => {
           percentOff: 20,
           amountOffCents: null,
           duration: "once",
+          durationInMonths: null,
         }}
       />,
     );
