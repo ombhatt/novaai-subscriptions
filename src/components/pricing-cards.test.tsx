@@ -42,6 +42,25 @@ describe("PricingCards", () => {
     expect(screen.getAllByText(/first invoice/i)).toHaveLength(2);
   });
 
+  it("does not advertise checkout promos on paid plan changes", () => {
+    render(
+      <PricingCards
+        currentTier="plus"
+        promoDiscount={{
+          percentOff: 20,
+          amountOffCents: null,
+          duration: "once",
+        }}
+      />,
+    );
+
+    expect(screen.queryByText("$16")).not.toBeInTheDocument();
+    expect(screen.queryByText("$79.20")).not.toBeInTheDocument();
+    expect(screen.queryByText(/first invoice/i)).not.toBeInTheDocument();
+    expect(screen.getByText("$20")).toBeInTheDocument();
+    expect(screen.getByText("$99")).toBeInTheDocument();
+  });
+
   it("marks the current tier", () => {
     render(<PricingCards currentTier="plus" />);
     expect(screen.getByText("Current")).toBeInTheDocument();
