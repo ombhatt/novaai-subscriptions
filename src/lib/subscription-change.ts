@@ -69,7 +69,6 @@ export async function changePaidSubscriptionTier(
   const isUpgrade = compareTiers(tier, subscription.tier) > 0;
   const updateParams: Stripe.SubscriptionUpdateParams = {
     items: [{ id: itemId, price: priceId }],
-    cancel_at_period_end: false,
     proration_behavior: isUpgrade ? "always_invoice" : "create_prorations",
     ...(isUpgrade ? { payment_behavior: "error_if_incomplete" } : {}),
   };

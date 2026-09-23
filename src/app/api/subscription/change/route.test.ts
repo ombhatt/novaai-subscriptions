@@ -88,7 +88,6 @@ describe("POST /api/subscription/change", () => {
     });
     expect(update).toHaveBeenCalledWith("sub_1", {
       items: [{ id: "si_plus", price: "price_pro" }],
-      cancel_at_period_end: false,
       payment_behavior: "error_if_incomplete",
       proration_behavior: "always_invoice",
     });
