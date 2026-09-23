@@ -90,6 +90,17 @@ describe("evaluateEntitlement", () => {
     expect(result.reason).toMatch(/not active/);
   });
 
+  it("keeps paid access while cancel_at_period_end is set and status is still active", () => {
+    const sub = makeSubscription({
+      status: "active",
+      tier: "plus",
+      cancel_at_period_end: true,
+    }) as Subscription;
+    const result = evaluateEntitlement(sub, 0);
+    expect(result.allowed).toBe(true);
+    expect(result.tier).toBe("plus");
+  });
+
   it("blocks incomplete subscriptions", () => {
     const sub = makeSubscription({ status: "incomplete" }) as Subscription;
     const result = evaluateEntitlement(sub, 0);

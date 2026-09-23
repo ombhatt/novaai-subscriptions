@@ -4,9 +4,20 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { EnterpriseInquiryForm } from "@/components/enterprise-inquiry-form";
 import { PricingCards } from "@/components/pricing-cards";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { Tier } from "@/lib/tiers";
+import type { PromoDiscount } from "@/lib/promo";
+import { isCheckoutTier, isPaidTier, type Tier } from "@/lib/tiers";
+
+export const PROMO_CODE_HINT =
+  "Optional. We'll apply a valid code automatically at checkout. First-invoice discounts show on the cards; the monthly rate stays the same.";
 
 export function PricingPageClient() {
   const router = useRouter();
@@ -15,8 +26,15 @@ export function PricingPageClient() {
   const [loadingTier, setLoadingTier] = useState<Tier | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [promoCode, setPromoCode] = useState(() => searchParams.get("promo") ?? "");
+  const [promoDiscount, setPromoDiscount] = useState<{
+    code: string;
+    discount: PromoDiscount;
+  } | null>(null);
   const [showInquiry, setShowInquiry] = useState(false);
   const [inquiryEmail, setInquiryEmail] = useState("");
+  const trimmedPromo = promoCode.trim();
+  const visiblePromoDiscount =
+    promoDiscount?.code === trimmedPromo ? promoDiscount.discount : null;
 
   useEffect(() => {
     fetch("/api/subscription")
@@ -26,6 +44,42 @@ export function PricingPageClient() {
       })
       .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    if (!trimmedPromo) return;
+
+    let cancelled = false;
+    const timeout = window.setTimeout(() => {
+      fetch(`/api/promo?code=${encodeURIComponent(trimmedPromo)}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((json) => {
+          if (cancelled) return;
+          if (!json?.valid) {
+            setPromoDiscount(null);
+            return;
+          }
+          setPromoDiscount({
+            code: trimmedPromo,
+            discount: {
+              percentOff: json.percentOff ?? null,
+              amountOffCents: json.amountOffCents ?? null,
+              duration:
+                json.duration === "repeating" || json.duration === "forever"
+                  ? json.duration
+                  : "once",
+            },
+          });
+        })
+        .catch(() => {
+          if (!cancelled) setPromoDiscount(null);
+        });
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [trimmedPromo]);
 
   async function handleSelectTier(tier: Tier) {
     setError(null);
@@ -45,9 +99,29 @@ export function PricingPageClient() {
       return;
     }
 
-    setLoadingTier(tier);
+    if (tier === "free") {
+      if (!isPaidTier(currentTier)) {
+        return;
+      }
 
-    const trimmedPromo = promoCode.trim();
+      setLoadingTier("free");
+      try {
+        const response = await fetch("/api/subscription/cancel", { method: "POST" });
+        const json = await response.json();
+        if (!response.ok) {
+          throw new Error(json.error ?? "Failed to schedule cancellation");
+        }
+        window.location.href = "/dashboard";
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Failed to schedule cancellation",
+        );
+        setLoadingTier(null);
+      }
+      return;
+    }
+
+    setLoadingTier(tier);
 
     const meResponse = await fetch("/api/me");
     const me = await meResponse.json();
@@ -61,25 +135,44 @@ export function PricingPageClient() {
       return;
     }
 
+    const switchingPaidPlan =
+      isPaidTier(currentTier) && isCheckoutTier(tier) && tier !== currentTier;
+
     try {
-      const response = await fetch("/api/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tier,
-          ...(trimmedPromo ? { promoCode: trimmedPromo } : {}),
-        }),
-      });
+      const response = await fetch(
+        switchingPaidPlan ? "/api/subscription/change" : "/api/checkout",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(
+            switchingPaidPlan
+              ? { tier }
+              : {
+                  tier,
+                  ...(trimmedPromo ? { promoCode: trimmedPromo } : {}),
+                },
+          ),
+        },
+      );
 
       const json = await response.json();
 
       if (!response.ok) {
-        throw new Error(json.error ?? "Checkout failed");
+        throw new Error(
+          json.error ??
+            (switchingPaidPlan ? "Failed to change plan" : "Checkout failed"),
+        );
       }
 
       window.location.href = json.url;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Checkout failed");
+      setError(
+        err instanceof Error
+          ? err.message
+          : switchingPaidPlan
+            ? "Failed to change plan"
+            : "Checkout failed",
+      );
       setLoadingTier(null);
     }
   }
@@ -113,23 +206,30 @@ export function PricingPageClient() {
           }
         />
         <p id="promo-code-hint" className="mt-1 text-xs text-muted-foreground">
-          Optional. The discount is applied on the Stripe checkout page.
+          {PROMO_CODE_HINT}
         </p>
       </div>
       <PricingCards
         currentTier={currentTier}
         onSelectTier={handleSelectTier}
         loadingTier={loadingTier}
+        promoDiscount={visiblePromoDiscount}
       />
-      {showInquiry && (
-        <div className="mt-10">
+      <Dialog open={showInquiry} onOpenChange={setShowInquiry}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Talk to sales</DialogTitle>
+            <DialogDescription>
+              Tell us about your team. This does not start a Stripe checkout.
+            </DialogDescription>
+          </DialogHeader>
           <EnterpriseInquiryForm
             key={inquiryEmail}
             initialEmail={inquiryEmail}
             promoCode={promoCode}
           />
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

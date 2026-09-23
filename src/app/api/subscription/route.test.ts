@@ -2,12 +2,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createSupabaseMock, makeSubscription } from "@/test/mocks/supabase";
 import { TIER_LIMITS } from "@/lib/tiers";
 
-const { createClientMock } = vi.hoisted(() => ({
-  createClientMock: vi.fn(),
-}));
+const { createClientMock, getStripeMock, isStripeConfiguredMock } = vi.hoisted(
+  () => ({
+    createClientMock: vi.fn(),
+    getStripeMock: vi.fn(),
+    isStripeConfiguredMock: vi.fn(),
+  }),
+);
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: createClientMock,
+}));
+
+vi.mock("@/lib/stripe", () => ({
+  getStripe: getStripeMock,
+  isStripeConfigured: isStripeConfiguredMock,
 }));
 
 import { GET } from "@/app/api/subscription/route";
@@ -47,6 +56,37 @@ describe("GET /api/subscription", () => {
     expect(json.limit).toBe(TIER_LIMITS.plus.requestsPerMonth);
     expect(json.remaining).toBe(TIER_LIMITS.plus.requestsPerMonth - 42);
     expect(json.tierDetails).toEqual(TIER_LIMITS.plus);
+    expect(json.lastInvoice).toBeNull();
+    expect(getStripeMock).not.toHaveBeenCalled();
+  });
+
+  it("includes the latest Stripe invoice when a promo reduced Plus to $16", async () => {
+    isStripeConfiguredMock.mockReturnValue(true);
+    getStripeMock.mockReturnValue({
+      invoices: {
+        list: vi.fn().mockResolvedValue({
+          data: [{ total: 1600, subtotal: 2000 }],
+        }),
+      },
+    });
+    createClientMock.mockResolvedValue(
+      createSupabaseMock({
+        fromResults: {
+          subscriptions: {
+            data: makeSubscription({
+              tier: "plus",
+              status: "active",
+              stripe_customer_id: "cus_plus",
+            }),
+            error: null,
+          },
+          usage_counters: { data: { request_count: 0 }, error: null },
+        },
+      }),
+    );
+
+    const json = await (await GET()).json();
+    expect(json.lastInvoice).toEqual({ totalCents: 1600, subtotalCents: 2000 });
   });
 
   it("defaults to free when no subscription row exists", async () => {

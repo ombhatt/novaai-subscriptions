@@ -96,3 +96,19 @@ export function isPaidTier(tier: Tier): boolean {
 export function isCheckoutTier(tier: string | undefined): tier is CheckoutTier {
   return tier === "plus" || tier === "pro";
 }
+
+export function stripePriceIdForTier(tier: CheckoutTier): string | undefined {
+  return tier === "plus" ? process.env.STRIPE_PRICE_PLUS : process.env.STRIPE_PRICE_PRO;
+}
+
+const TIER_RANK: Record<Tier, number> = {
+  free: 0,
+  plus: 1,
+  pro: 2,
+  enterprise: 3,
+};
+
+/** Negative if `a` is a lower plan than `b`. */
+export function compareTiers(a: Tier, b: Tier): number {
+  return TIER_RANK[a] - TIER_RANK[b];
+}
