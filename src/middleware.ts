@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { checkoutResumePath } from "@/lib/checkout-resume";
 
 export async function middleware(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -48,9 +49,19 @@ export async function middleware(request: NextRequest) {
   const isAuthPath = authPaths.includes(request.nextUrl.pathname);
 
   if (isAuthPath && user) {
+    const resumePath = checkoutResumePath(
+      request.nextUrl.searchParams.get("plan"),
+      request.nextUrl.searchParams.get("promo"),
+    );
     const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = "/dashboard";
-    redirectUrl.search = "";
+    if (resumePath) {
+      const resume = new URL(resumePath, request.url);
+      redirectUrl.pathname = resume.pathname;
+      redirectUrl.search = resume.search;
+    } else {
+      redirectUrl.pathname = "/dashboard";
+      redirectUrl.search = "";
+    }
     return NextResponse.redirect(redirectUrl);
   }
 
