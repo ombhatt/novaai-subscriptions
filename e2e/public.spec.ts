@@ -39,6 +39,7 @@ test.describe("public pages", () => {
   test("enterprise contact sales opens an inquiry form", async ({ page }) => {
     await page.goto("/pricing");
     await page.getByRole("button", { name: "Contact sales" }).click();
+    await expect(page.getByRole("dialog", { name: "Talk to sales" })).toBeVisible();
     await expect(page.getByTestId("enterprise-inquiry-form")).toBeVisible();
     await expect(page).toHaveURL(/\/pricing/);
   });

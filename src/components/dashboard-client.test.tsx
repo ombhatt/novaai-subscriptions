@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DashboardClient } from "@/components/dashboard-client";
 
@@ -60,6 +60,37 @@ describe("DashboardClient", () => {
     expect(
       await screen.findByText(/requests remaining this billing period/),
     ).toBeInTheDocument();
+    expect(screen.getByTestId("dashboard-plan")).toHaveTextContent("$20/mo");
+    expect(screen.queryByTestId("dashboard-invoice")).not.toBeInTheDocument();
+  });
+
+  it("shows the discounted latest invoice after a promo Plus checkout", async () => {
+    vi.spyOn(global, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          subscription: {
+            current_period_start: "2026-09-15T00:00:00.000Z",
+            current_period_end: "2026-10-15T00:00:00.000Z",
+          },
+          usage: 0,
+          limit: 50000,
+          remaining: 50000,
+          tier: "plus",
+          status: "active",
+          lastInvoice: { totalCents: 1600, subtotalCents: 2000 },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    render(<DashboardClient />);
+
+    expect(await screen.findByTestId("dashboard-plan")).toHaveTextContent(
+      "You are on the Plus plan ($20/mo)",
+    );
+    expect(screen.getByTestId("dashboard-invoice")).toHaveTextContent(
+      "Your latest invoice was $16 after a promo. Plus stays $20/mo after that.",
+    );
   });
 
   it("shows an error state when subscription fetch fails", async () => {
@@ -280,5 +311,106 @@ describe("DashboardClient", () => {
     await waitFor(() => {
       expect(location.href).toBe("https://billing.stripe.com/p");
     });
+  });
+
+  it("lets a Plus subscriber cancel at period end and then drop to Free", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.spyOn(global, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            subscription: {
+              current_period_end: "2026-10-15T00:00:00.000Z",
+              cancel_at_period_end: false,
+            },
+            usage: 0,
+            limit: 50000,
+            remaining: 50000,
+            tier: "plus",
+            status: "active",
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ cancelAtPeriodEnd: true }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            subscription: {
+              current_period_end: "2026-10-15T00:00:00.000Z",
+              cancel_at_period_end: true,
+            },
+            usage: 0,
+            limit: 50000,
+            remaining: 50000,
+            tier: "plus",
+            status: "active",
+          }),
+          { status: 200 },
+        ),
+      );
+
+    render(<DashboardClient />);
+    await user.click(await screen.findByRole("button", { name: "Cancel plan" }));
+    expect(await screen.findByTestId("cancel-plan-confirm")).toHaveTextContent(
+      /keep Plus until/,
+    );
+    expect(screen.getByTestId("cancel-plan-confirm")).toHaveTextContent(/Free/);
+    await user.click(screen.getByRole("button", { name: "Confirm cancellation" }));
+
+    const banner = await screen.findByTestId("cancellation-banner");
+    expect(banner).toHaveTextContent(/move to Free/);
+    expect(within(banner).getByRole("button", { name: "Keep plan" })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/subscription/cancel",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("lets the customer keep the plan after scheduling cancellation", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(global, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            subscription: {
+              current_period_end: "2026-10-15T00:00:00.000Z",
+              cancel_at_period_end: true,
+            },
+            usage: 0,
+            limit: 50000,
+            remaining: 50000,
+            tier: "plus",
+            status: "active",
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ cancelAtPeriodEnd: false }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            subscription: {
+              current_period_end: "2026-10-15T00:00:00.000Z",
+              cancel_at_period_end: false,
+            },
+            usage: 0,
+            limit: 50000,
+            remaining: 50000,
+            tier: "plus",
+            status: "active",
+          }),
+          { status: 200 },
+        ),
+      );
+
+    render(<DashboardClient />);
+    const banner = await screen.findByTestId("cancellation-banner");
+    await user.click(within(banner).getByRole("button", { name: "Keep plan" }));
+    expect(await screen.findByRole("button", { name: "Cancel plan" })).toBeInTheDocument();
   });
 });
