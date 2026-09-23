@@ -167,7 +167,13 @@ describe("handleStripeWebhookEvent", () => {
     const supabase = createSupabaseMock({
       fromResults: {
         stripe_webhook_events: { data: null, error: null },
-        subscriptions: { data: { user_id: "user-1" }, error: null },
+        subscriptions: {
+          data: {
+            user_id: "user-1",
+            stripe_subscription_id: "sub_123",
+          },
+          error: null,
+        },
       },
     });
     createAdminClientMock.mockReturnValue(supabase);
@@ -184,6 +190,37 @@ describe("handleStripeWebhookEvent", () => {
         status: "active",
       }),
     );
+    expect(supabase.builders.subscriptions.builder.eq).toHaveBeenCalledWith(
+      "stripe_subscription_id",
+      "sub_123",
+    );
+  });
+
+  it("ignores a delayed deletion for an older subscription", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        stripe_webhook_events: { data: null, error: null },
+        subscriptions: {
+          data: {
+            user_id: "user-1",
+            status: "active",
+            grace_period_ends_at: null,
+            stripe_subscription_id: "sub_new",
+          },
+          error: null,
+        },
+      },
+    });
+    createAdminClientMock.mockReturnValue(supabase);
+
+    await handleStripeWebhookEvent(
+      makeEvent(
+        "customer.subscription.deleted",
+        makeStripeSubscription({ id: "sub_old" }),
+      ),
+    );
+
+    expect(supabase.builders.subscriptions.builder.lastUpdate).toBeUndefined();
   });
 
   it("preserves paid access when Stripe cancels during dunning grace", async () => {
@@ -197,6 +234,7 @@ describe("handleStripeWebhookEvent", () => {
             user_id: "user-1",
             status: "past_due",
             grace_period_ends_at: "2026-09-11T12:00:00.000Z",
+            stripe_subscription_id: "sub_123",
           },
           error: null,
         },
@@ -330,7 +368,13 @@ describe("handleStripeWebhookEvent", () => {
     const supabase = createSupabaseMock({
       fromResults: {
         stripe_webhook_events: { data: null, error: null },
-        subscriptions: { data: { user_id: "user-1" }, error: null },
+        subscriptions: {
+          data: {
+            user_id: "user-1",
+            stripe_subscription_id: "sub_123",
+          },
+          error: null,
+        },
       },
     });
     createAdminClientMock.mockReturnValue(supabase);

@@ -145,11 +145,15 @@ export async function upsertSubscriptionFromStripe(
   }
 }
 
-export async function downgradeToFree(userId: string, customerId?: string) {
+export async function downgradeToFree(
+  userId: string,
+  customerId?: string,
+  expectedSubscriptionId?: string,
+) {
   const supabase = createAdminClient();
   const { data: subscription, error: lookupError } = await supabase
     .from("subscriptions")
-    .select("status, grace_period_ends_at")
+    .select("status, grace_period_ends_at, stripe_subscription_id")
     .eq("user_id", userId)
     .maybeSingle();
 
@@ -157,11 +161,18 @@ export async function downgradeToFree(userId: string, customerId?: string) {
     throw new Error(`Failed to check dunning grace: ${lookupError.message}`);
   }
 
+  if (
+    expectedSubscriptionId &&
+    subscription?.stripe_subscription_id !== expectedSubscriptionId
+  ) {
+    return;
+  }
+
   if (isWithinDunningGrace(subscription)) {
     return;
   }
 
-  const { error } = await supabase
+  let update = supabase
     .from("subscriptions")
     .update({
       tier: "free",
@@ -175,6 +186,12 @@ export async function downgradeToFree(userId: string, customerId?: string) {
       ...(customerId ? { stripe_customer_id: customerId } : {}),
     })
     .eq("user_id", userId);
+
+  if (expectedSubscriptionId) {
+    update = update.eq("stripe_subscription_id", expectedSubscriptionId);
+  }
+
+  const { error } = await update;
 
   if (error) {
     throw new Error(`Failed to downgrade subscription: ${error.message}`);
@@ -216,7 +233,7 @@ async function processStripeWebhookEvent(event: Stripe.Event): Promise<void> {
       }
 
       if (subscription.status === "canceled") {
-        await downgradeToFree(userId, customerId);
+        await downgradeToFree(userId, customerId, subscription.id);
       } else {
         await upsertSubscriptionFromStripe(userId, customerId, subscription);
       }
@@ -235,7 +252,7 @@ async function processStripeWebhookEvent(event: Stripe.Event): Promise<void> {
         throw new Error(`No user found for customer ${customerId}`);
       }
 
-      await downgradeToFree(userId, customerId);
+      await downgradeToFree(userId, customerId, subscription.id);
       break;
     }
 
