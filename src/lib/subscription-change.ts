@@ -1,6 +1,6 @@
 import type Stripe from "stripe";
 import { NextResponse } from "next/server";
-import type { Subscription } from "@/lib/entitlements";
+import { usagePeriodStart, type Subscription } from "@/lib/entitlements";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { createClient } from "@/lib/supabase/server";
 import { upsertSubscriptionFromStripe } from "@/lib/stripe-webhook-handler";
@@ -9,6 +9,7 @@ import {
   isCheckoutTier,
   isPaidTier,
   stripePriceIdForTier,
+  TIER_LIMITS,
   type CheckoutTier,
 } from "@/lib/tiers";
 
@@ -19,9 +20,10 @@ export type ChangePaidPlanResult =
 export async function changePaidSubscriptionTier(
   subscription: Pick<
     Subscription,
-    "user_id" | "tier" | "stripe_customer_id" | "stripe_subscription_id"
+    "user_id" | "tier" | "status" | "stripe_customer_id" | "stripe_subscription_id"
   >,
   tier: CheckoutTier,
+  usageCount: number,
 ): Promise<ChangePaidPlanResult> {
   if (
     !isPaidTier(subscription.tier) ||
@@ -40,6 +42,25 @@ export async function changePaidSubscriptionTier(
       ok: false,
       status: 400,
       error: "Already on this plan.",
+    };
+  }
+
+  if (subscription.status !== "active" && subscription.status !== "trialing") {
+    return {
+      ok: false,
+      status: 409,
+      error: "Resolve your outstanding billing issue before changing plans.",
+    };
+  }
+
+  if (
+    compareTiers(tier, subscription.tier) < 0 &&
+    usageCount >= TIER_LIMITS[tier].requestsPerMonth
+  ) {
+    return {
+      ok: false,
+      status: 409,
+      error: `You have already used the ${tier} plan's request allowance for this billing period. Try again after your next billing period begins.`,
     };
   }
 
@@ -123,9 +144,32 @@ export async function handleChangePaidPlanRequest(request: Request) {
     );
   }
 
+  let usageCount = 0;
+  if (
+    (subscription.status === "active" || subscription.status === "trialing") &&
+    compareTiers(tier, subscription.tier) < 0
+  ) {
+    const { data: usage, error: usageError } = await supabase
+      .from("usage_counters")
+      .select("request_count")
+      .eq("user_id", user.id)
+      .eq("period_start", usagePeriodStart(subscription as Subscription))
+      .maybeSingle();
+
+    if (usageError) {
+      return NextResponse.json(
+        { error: "Unable to verify usage before changing plans." },
+        { status: 500 },
+      );
+    }
+
+    usageCount = usage?.request_count ?? 0;
+  }
+
   const result = await changePaidSubscriptionTier(
     subscription as Subscription,
     tier,
+    usageCount,
   );
 
   if (!result.ok) {

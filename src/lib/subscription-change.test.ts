@@ -29,6 +29,7 @@ describe("changePaidSubscriptionTier", () => {
     const result = await changePaidSubscriptionTier(
       makeSubscription() as Subscription,
       "pro",
+      0,
     );
     expect(result).toEqual({
       ok: false,
@@ -46,12 +47,34 @@ describe("changePaidSubscriptionTier", () => {
         stripe_subscription_id: "sub_stripe",
       }) as Subscription,
       "plus",
+      0,
     );
     expect(result).toEqual({
       ok: false,
       status: 400,
       error: "Already on this plan.",
     });
+  });
+
+  it("rejects plan changes while the subscription is past due", async () => {
+    const result = await changePaidSubscriptionTier(
+      makeSubscription({
+        tier: "pro",
+        status: "past_due",
+        stripe_customer_id: "cus_1",
+        stripe_subscription_id: "sub_stripe",
+      }) as Subscription,
+      "plus",
+      10_000,
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      status: 409,
+      error: "Resolve your outstanding billing issue before changing plans.",
+    });
+    expect(getStripeMock).not.toHaveBeenCalled();
+    expect(upsertMock).not.toHaveBeenCalled();
   });
 
   it("charges an upgrade immediately without reversing a scheduled cancellation", async () => {
@@ -72,7 +95,7 @@ describe("changePaidSubscriptionTier", () => {
       stripe_subscription_id: "sub_stripe",
     }) as Subscription;
 
-    const result = await changePaidSubscriptionTier(subscription, "pro");
+    const result = await changePaidSubscriptionTier(subscription, "pro", 0);
 
     expect(result).toEqual({ ok: true });
     expect(retrieve).toHaveBeenCalledWith("sub_stripe");
@@ -85,6 +108,25 @@ describe("changePaidSubscriptionTier", () => {
       id: "sub_stripe",
       items: { data: [{ id: "si_plus", price: { id: "price_pro" } }] },
     });
+  });
+
+  it("rejects a downgrade when current-period usage already exceeds the target plan", async () => {
+    const subscription = makeSubscription({
+      tier: "pro",
+      stripe_customer_id: "cus_1",
+      stripe_subscription_id: "sub_stripe",
+    }) as Subscription;
+
+    const result = await changePaidSubscriptionTier(subscription, "plus", 80_000);
+
+    expect(result).toEqual({
+      ok: false,
+      status: 409,
+      error:
+        "You have already used the plus plan's request allowance for this billing period. Try again after your next billing period begins.",
+    });
+    expect(getStripeMock).not.toHaveBeenCalled();
+    expect(upsertMock).not.toHaveBeenCalled();
   });
 
   it("leaves downgrade credits on the next invoice", async () => {
@@ -104,7 +146,7 @@ describe("changePaidSubscriptionTier", () => {
       stripe_subscription_id: "sub_stripe",
     }) as Subscription;
 
-    await expect(changePaidSubscriptionTier(subscription, "plus")).resolves.toEqual({
+    await expect(changePaidSubscriptionTier(subscription, "plus", 1_000)).resolves.toEqual({
       ok: true,
     });
     expect(update).toHaveBeenCalledWith("sub_stripe", {
@@ -127,7 +169,7 @@ describe("changePaidSubscriptionTier", () => {
       stripe_subscription_id: "sub_stripe",
     }) as Subscription;
 
-    await expect(changePaidSubscriptionTier(subscription, "pro")).rejects.toThrow(
+    await expect(changePaidSubscriptionTier(subscription, "pro", 0)).rejects.toThrow(
       "card declined",
     );
     expect(upsertMock).not.toHaveBeenCalled();
