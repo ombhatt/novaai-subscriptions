@@ -115,6 +115,82 @@ describe("AuthForm", () => {
         password: "password1",
         options: { data: { full_name: "Ada Lovelace" } },
       });
+      expect(pushMock).toHaveBeenCalledWith("/dashboard");
+    });
+  });
+
+  it("continues signup to checkout for the chosen plan and promo", async () => {
+    const user = userEvent.setup();
+    const signUp = vi.fn().mockResolvedValue({
+      data: { session: { access_token: "session" } },
+      error: null,
+    });
+    createClientMock.mockReturnValue({
+      auth: { signInWithPassword: vi.fn(), signUp },
+    });
+
+    render(<AuthForm mode="signup" plan="plus" promo="WELCOME20" />);
+    expect(
+      screen.getByText("Create your account to continue to Plus checkout."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute(
+      "href",
+      "/login?plan=plus&promo=WELCOME20",
+    );
+
+    await user.type(screen.getByLabelText("Full name"), "Ada Lovelace");
+    await user.type(screen.getByLabelText("Email"), "ada@example.com");
+    await user.type(screen.getByLabelText("Password"), "password1");
+    await user.click(screen.getByRole("button", { name: "Create account" }));
+
+    await waitFor(() => {
+      expect(signUp).toHaveBeenCalledWith({
+        email: "ada@example.com",
+        password: "password1",
+        options: {
+          data: { full_name: "Ada Lovelace" },
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent("/checkout/start?plan=plus&promo=WELCOME20")}`,
+        },
+      });
+      expect(pushMock).toHaveBeenCalledWith(
+        "/checkout/start?plan=plus&promo=WELCOME20",
+      );
+    });
+  });
+
+  it("asks the user to confirm email before checkout when signup has no session", async () => {
+    const user = userEvent.setup();
+    const signUp = vi.fn().mockResolvedValue({ data: { session: null }, error: null });
+    createClientMock.mockReturnValue({
+      auth: { signInWithPassword: vi.fn(), signUp },
+    });
+
+    render(<AuthForm mode="signup" plan="pro" />);
+    await user.type(screen.getByLabelText("Full name"), "Ada Lovelace");
+    await user.type(screen.getByLabelText("Email"), "ada@example.com");
+    await user.type(screen.getByLabelText("Password"), "password1");
+    await user.click(screen.getByRole("button", { name: "Create account" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Check your email to continue to checkout.",
+    );
+    expect(pushMock).not.toHaveBeenCalled();
+  });
+
+  it("continues sign-in to checkout for the chosen plan", async () => {
+    const user = userEvent.setup();
+    const signInWithPassword = vi.fn().mockResolvedValue({ error: null });
+    createClientMock.mockReturnValue({
+      auth: { signInWithPassword, signUp: vi.fn() },
+    });
+
+    render(<AuthForm mode="login" plan="pro" promo=" SAVE20 " />);
+    await user.type(screen.getByLabelText("Email"), "a@b.com");
+    await user.type(screen.getByLabelText("Password"), "password1");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+
+    await waitFor(() => {
+      expect(pushMock).toHaveBeenCalledWith("/checkout/start?plan=pro&promo=SAVE20");
     });
   });
 

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,12 +15,27 @@ import {
 } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/config";
+import { checkoutResumePath, checkoutTierFromPlan } from "@/lib/checkout-resume";
+import { TIER_LIMITS } from "@/lib/tiers";
 
 interface AuthFormProps {
   mode: "login" | "signup";
+  plan?: string | null;
+  promo?: string | null;
 }
 
-export function AuthForm({ mode }: AuthFormProps) {
+export function AuthFormFromSearchParams({ mode }: { mode: "login" | "signup" }) {
+  const searchParams = useSearchParams();
+  return (
+    <AuthForm
+      mode={mode}
+      plan={searchParams.get("plan")}
+      promo={searchParams.get("promo")}
+    />
+  );
+}
+
+export function AuthForm({ mode, plan = null, promo = null }: AuthFormProps) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -29,6 +44,11 @@ export function AuthForm({ mode }: AuthFormProps) {
   const [loading, setLoading] = useState(false);
 
   const isLogin = mode === "login";
+  const checkoutTier = checkoutTierFromPlan(plan);
+  const resumePath = checkoutResumePath(plan, promo);
+  const otherModeHref = `${isLogin ? "/signup" : "/login"}${
+    resumePath ? new URL(resumePath, "http://localhost").search : ""
+  }`;
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -53,17 +73,25 @@ export function AuthForm({ mode }: AuthFormProps) {
         });
         if (signInError) throw signInError;
       } else {
-        const { error: signUpError } = await supabase.auth.signUp({
+        const emailRedirectTo = resumePath
+          ? `${window.location.origin}/auth/callback?next=${encodeURIComponent(resumePath)}`
+          : undefined;
+        const { data, error: signUpError } = await supabase.auth.signUp({
           email,
           password,
           options: {
             data: { full_name: fullName },
+            ...(emailRedirectTo ? { emailRedirectTo } : {}),
           },
         });
         if (signUpError) throw signUpError;
+        if (resumePath && !data.session) {
+          setError("Check your email to continue to checkout.");
+          return;
+        }
       }
 
-      router.push("/dashboard");
+      router.push(resumePath ?? "/dashboard");
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Authentication failed");
@@ -77,9 +105,11 @@ export function AuthForm({ mode }: AuthFormProps) {
       <CardHeader>
         <CardTitle>{isLogin ? "Welcome back" : "Create your account"}</CardTitle>
         <CardDescription>
-          {isLogin
-            ? "Sign in to manage your subscription and API usage."
-            : "Start on the Free plan — upgrade anytime from your dashboard."}
+          {checkoutTier
+            ? `${isLogin ? "Sign in" : "Create your account"} to continue to ${TIER_LIMITS[checkoutTier].label} checkout.`
+            : isLogin
+              ? "Sign in to manage your subscription and API usage."
+              : "Start on the Free plan — upgrade anytime from your dashboard."}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -144,7 +174,7 @@ export function AuthForm({ mode }: AuthFormProps) {
         <p className="mt-6 text-center text-sm text-muted-foreground">
           {isLogin ? "Don't have an account?" : "Already have an account?"}{" "}
           <Link
-            href={isLogin ? "/signup" : "/login"}
+            href={otherModeHref}
             className="font-medium text-primary underline-offset-4 hover:underline"
           >
             {isLogin ? "Sign up" : "Sign in"}

@@ -64,6 +64,26 @@ describe("middleware", () => {
     );
   });
 
+  it("sends a signed-in user with a pricing plan to checkout", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://example.supabase.co");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "anon");
+    createServerClientMock.mockReturnValue({
+      auth: {
+        getUser: vi.fn().mockResolvedValue({
+          data: { user: { id: "user-1" } },
+        }),
+      },
+    });
+
+    const response = await middleware(
+      makeRequest("/signup?plan=plus&promo=WELCOME20"),
+    );
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "http://localhost:43123/checkout/start?plan=plus&promo=WELCOME20",
+    );
+  });
+
   it("allows authenticated access to /dashboard", async () => {
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://example.supabase.co");
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "anon");
