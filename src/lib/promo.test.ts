@@ -12,6 +12,7 @@ describe("promo pricing", () => {
         percentOff: 20,
         amountOffCents: null,
         duration: "once",
+        durationInMonths: null,
       }),
     ).toBe(1600);
     expect(formatUsdFromCents(1600)).toBe("$16");

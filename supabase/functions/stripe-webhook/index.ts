@@ -86,11 +86,30 @@ async function recordEvent(eventId: string, eventType: string): Promise<boolean>
   const { error } = await supabase.from("stripe_webhook_events").insert({
     id: eventId,
     event_type: eventType,
+    processed_at: null,
   });
 
-  if (error?.code === "23505") return false;
+  if (error?.code === "23505") {
+    const { data, error: lookupError } = await supabase
+      .from("stripe_webhook_events")
+      .select("processed_at")
+      .eq("id", eventId)
+      .maybeSingle();
+
+    if (lookupError) throw new Error(`Failed to inspect webhook event: ${lookupError.message}`);
+    return data?.processed_at == null;
+  }
   if (error) throw new Error(error.message);
   return true;
+}
+
+async function completeEvent(eventId: string): Promise<void> {
+  const { error } = await supabase
+    .from("stripe_webhook_events")
+    .update({ processed_at: new Date().toISOString() })
+    .eq("id", eventId);
+
+  if (error) throw new Error(`Failed to complete webhook event: ${error.message}`);
 }
 
 async function releaseEvent(eventId: string): Promise<void> {
@@ -156,17 +175,27 @@ async function upsertSubscription(
   if (error) throw new Error(error.message);
 }
 
-async function downgradeToFree(userId: string, customerId?: string) {
+async function downgradeToFree(
+  userId: string,
+  customerId?: string,
+  expectedSubscriptionId?: string,
+) {
   const { data: subscription, error: lookupError } = await supabase
     .from("subscriptions")
-    .select("status, grace_period_ends_at")
+    .select("status, grace_period_ends_at, stripe_subscription_id")
     .eq("user_id", userId)
     .maybeSingle();
 
   if (lookupError) throw new Error(lookupError.message);
+  if (
+    expectedSubscriptionId &&
+    subscription?.stripe_subscription_id !== expectedSubscriptionId
+  ) {
+    return;
+  }
   if (isWithinDunningGrace(subscription)) return;
 
-  const { error } = await supabase
+  let update = supabase
     .from("subscriptions")
     .update({
       tier: "free",
@@ -180,6 +209,12 @@ async function downgradeToFree(userId: string, customerId?: string) {
       ...(customerId ? { stripe_customer_id: customerId } : {}),
     })
     .eq("user_id", userId);
+
+  if (expectedSubscriptionId) {
+    update = update.eq("stripe_subscription_id", expectedSubscriptionId);
+  }
+
+  const { error } = await update;
 
   if (error) throw new Error(error.message);
 }
@@ -206,7 +241,8 @@ async function processEvent(event: Stripe.Event) {
     }
 
     case "customer.subscription.updated": {
-      const subscription = event.data.object as Stripe.Subscription;
+      const eventSubscription = event.data.object as Stripe.Subscription;
+      const subscription = await stripe.subscriptions.retrieve(eventSubscription.id);
       const customerId =
         typeof subscription.customer === "string"
           ? subscription.customer
@@ -216,7 +252,7 @@ async function processEvent(event: Stripe.Event) {
       if (!userId) throw new Error(`No user for customer ${customerId}`);
 
       if (subscription.status === "canceled") {
-        await downgradeToFree(userId, customerId);
+        await downgradeToFree(userId, customerId, subscription.id);
       } else {
         await upsertSubscription(userId, customerId, subscription);
       }
@@ -232,7 +268,7 @@ async function processEvent(event: Stripe.Event) {
 
       const userId = await findUserId(customerId);
       if (!userId) throw new Error(`No user for customer ${customerId}`);
-      await downgradeToFree(userId, customerId);
+      await downgradeToFree(userId, customerId, subscription.id);
       break;
     }
 
@@ -285,19 +321,7 @@ async function processEvent(event: Stripe.Event) {
       if (subscriptionId) {
         const subscription = await stripe.subscriptions.retrieve(subscriptionId);
         await upsertSubscription(userId, customerId, subscription);
-        break;
       }
-
-      const { error } = await supabase
-        .from("subscriptions")
-        .update({
-          status: "active",
-          grace_period_ends_at: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("user_id", userId);
-
-      if (error) throw new Error(error.message);
       break;
     }
   }
@@ -309,6 +333,7 @@ async function handleEvent(event: Stripe.Event) {
 
   try {
     await processEvent(event);
+    await completeEvent(event.id);
   } catch (error) {
     try {
       await releaseEvent(event.id);

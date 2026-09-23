@@ -25,5 +25,6 @@ export async function GET(request: Request) {
     percentOff: discount.percentOff,
     amountOffCents: discount.amountOffCents,
     duration: discount.duration,
+    durationInMonths: discount.durationInMonths,
   });
 }
