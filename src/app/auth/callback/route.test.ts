@@ -39,6 +39,23 @@ describe("GET /auth/callback", () => {
     expect(response.headers.get("location")).toBe("http://localhost:43123/pricing");
   });
 
+  it.each(["@evil.example", "//evil.example", "/\\evil.example"])(
+    "falls back to the dashboard for unsafe next path %s",
+    async (next) => {
+      createClientMock.mockResolvedValue(createSupabaseMock());
+
+      const response = await GET(
+        new Request(
+          `http://localhost:43123/auth/callback?code=abc&next=${encodeURIComponent(next)}`,
+        ),
+      );
+
+      expect(response.headers.get("location")).toBe(
+        "http://localhost:43123/dashboard",
+      );
+    },
+  );
+
   it("redirects to login when exchange fails", async () => {
     createClientMock.mockResolvedValue(
       createSupabaseMock({ exchangeError: new Error("bad code") }),
