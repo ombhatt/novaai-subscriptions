@@ -297,7 +297,7 @@ describe("handleStripeWebhookEvent", () => {
     );
   });
 
-  it("marks subscription active on invoice.paid when there is no subscription id", async () => {
+  it("ignores invoice.paid when there is no subscription id", async () => {
     const supabase = createSupabaseMock({
       fromResults: {
         stripe_webhook_events: { data: null, error: null },
@@ -312,12 +312,7 @@ describe("handleStripeWebhookEvent", () => {
 
     expect(supabase.from).toHaveBeenCalledWith("subscriptions");
     expect(getStripeMock).not.toHaveBeenCalled();
-    expect(supabase.builders.subscriptions.builder.lastUpdate).toEqual(
-      expect.objectContaining({
-        status: "active",
-        grace_period_ends_at: null,
-      }),
-    );
+    expect(supabase.builders.subscriptions.builder.lastUpdate).toBeUndefined();
   });
 
   it("refreshes billing period on invoice.paid when a subscription is present", async () => {

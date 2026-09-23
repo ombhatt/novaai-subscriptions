@@ -320,19 +320,7 @@ async function processEvent(event: Stripe.Event) {
       if (subscriptionId) {
         const subscription = await stripe.subscriptions.retrieve(subscriptionId);
         await upsertSubscription(userId, customerId, subscription);
-        break;
       }
-
-      const { error } = await supabase
-        .from("subscriptions")
-        .update({
-          status: "active",
-          grace_period_ends_at: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("user_id", userId);
-
-      if (error) throw new Error(error.message);
       break;
     }
   }
