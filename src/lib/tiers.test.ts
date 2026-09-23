@@ -3,7 +3,9 @@ import {
   TIER_LIMITS,
   isCheckoutTier,
   isPaidTier,
+  stripePriceIdForTier,
   tierFromStripePriceId,
+  compareTiers,
   type Tier,
 } from "@/lib/tiers";
 
@@ -67,6 +69,14 @@ describe("isCheckoutTier", () => {
   });
 });
 
+describe("compareTiers", () => {
+  it("ranks free < plus < pro < enterprise", () => {
+    expect(compareTiers("plus", "pro")).toBeLessThan(0);
+    expect(compareTiers("pro", "plus")).toBeGreaterThan(0);
+    expect(compareTiers("pro", "pro")).toBe(0);
+  });
+});
+
 describe("tierFromStripePriceId", () => {
   beforeEach(() => {
     vi.stubEnv("STRIPE_PRICE_PLUS", "price_plus_test");
@@ -86,6 +96,11 @@ describe("tierFromStripePriceId", () => {
   it("maps plus and pro price IDs", () => {
     expect(tierFromStripePriceId("price_plus_test")).toBe("plus");
     expect(tierFromStripePriceId("price_pro_test")).toBe("pro");
+  });
+
+  it("returns the configured price ID for plus and pro", () => {
+    expect(stripePriceIdForTier("plus")).toBe("price_plus_test");
+    expect(stripePriceIdForTier("pro")).toBe("price_pro_test");
   });
 
   it("returns free for unknown price IDs", () => {

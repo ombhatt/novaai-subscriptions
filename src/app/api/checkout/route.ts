@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 import { createClient } from "@/lib/supabase/server";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
-import { isCheckoutTier, type Tier } from "@/lib/tiers";
+import { findActivePromotionCode } from "@/lib/stripe-promo";
+import { isCheckoutTier, stripePriceIdForTier, type Tier } from "@/lib/tiers";
 
 function isStripeInvalidRequestError(
   error: unknown,
@@ -41,8 +42,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid tier for checkout." }, { status: 400 });
   }
 
-  const priceId =
-    tier === "plus" ? process.env.STRIPE_PRICE_PLUS : process.env.STRIPE_PRICE_PRO;
+  const priceId = stripePriceIdForTier(tier);
 
   if (!priceId) {
     return NextResponse.json(
@@ -87,12 +87,7 @@ export async function POST(request: Request) {
   let discounts: Stripe.Checkout.SessionCreateParams.Discount[] | undefined;
 
   if (promoCode) {
-    const { data: promotionCodes } = await stripe.promotionCodes.list({
-      code: promoCode,
-      active: true,
-      limit: 1,
-    });
-    const promotionCode = promotionCodes[0];
+    const promotionCode = await findActivePromotionCode(stripe, promoCode);
 
     if (!promotionCode) {
       return NextResponse.json(

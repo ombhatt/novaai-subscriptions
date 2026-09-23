@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const { pushMock, searchParamsGet } = vi.hoisted(() => ({
@@ -21,6 +21,20 @@ describe("PricingPageClient", () => {
     searchParamsGet.mockReturnValue(null);
   });
 
+  it("explains that a promo is applied automatically to the first invoice", () => {
+    vi.spyOn(global, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ tier: "free" }), { status: 200 }),
+    );
+
+    render(<PricingPageClient />);
+
+    expect(
+      screen.getByText(
+        "Optional. We'll apply a valid code automatically at checkout. First-invoice discounts show on the cards; the monthly rate stays the same.",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("prefills the promo field from ?promo=", () => {
     searchParamsGet.mockReturnValue("WELCOME20");
     vi.spyOn(global, "fetch").mockResolvedValue(
@@ -30,6 +44,38 @@ describe("PricingPageClient", () => {
     render(<PricingPageClient />);
 
     expect(screen.getByTestId("promo-code")).toHaveValue("WELCOME20");
+  });
+
+  it("previews WELCOME20 as $16 on the Plus card", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(global, "fetch").mockImplementation((input) => {
+      const url = String(input);
+      if (url.includes("/api/subscription")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ tier: "free" }), { status: 200 }),
+        );
+      }
+      if (url.includes("/api/promo")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              valid: true,
+              percentOff: 20,
+              amountOffCents: null,
+              duration: "once",
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      return Promise.reject(new Error(`unexpected fetch: ${url}`));
+    });
+
+    render(<PricingPageClient />);
+    await user.type(screen.getByTestId("promo-code"), "WELCOME20");
+
+    expect(await screen.findByText("$16", undefined, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.getByText("$20")).toBeInTheDocument();
   });
 
   it("includes promoCode in the checkout request", async () => {
@@ -204,8 +250,148 @@ describe("PricingPageClient", () => {
     render(<PricingPageClient />);
     await user.click(screen.getByRole("button", { name: "Contact sales" }));
 
-    expect(await screen.findByTestId("enterprise-inquiry-form")).toBeInTheDocument();
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("Talk to sales");
+    expect(within(dialog).getByTestId("enterprise-inquiry-form")).toBeInTheDocument();
     expect(pushMock).not.toHaveBeenCalled();
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).includes("/api/checkout")),
+    ).toBe(false);
+
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("changes an existing Plus subscription to Pro instead of opening checkout or the portal", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.spyOn(global, "fetch").mockImplementation((input) => {
+      const url = String(input);
+      if (url.includes("/api/subscription") && !url.includes("/api/subscription/change")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ tier: "plus" }), { status: 200 }),
+        );
+      }
+      if (url.includes("/api/me")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ user: { id: "user-1" } }), {
+            status: 200,
+          }),
+        );
+      }
+      if (url.includes("/api/subscription/change")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ url: "http://localhost/dashboard" }), {
+            status: 200,
+          }),
+        );
+      }
+      return Promise.reject(new Error(`unexpected fetch: ${url}`));
+    });
+
+    const location = { href: "http://localhost/pricing" };
+    vi.stubGlobal("location", location);
+
+    render(<PricingPageClient />);
+    await screen.findByRole("button", { name: "Current plan" });
+    await user.click(screen.getByRole("button", { name: "Upgrade to Pro" }));
+
+    await waitFor(() => {
+      expect(location.href).toBe("http://localhost/dashboard");
+    });
+
+    const changeCall = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        String(url).includes("/api/subscription/change") && init?.method === "POST",
+    );
+    expect(JSON.parse(String(changeCall?.[1]?.body))).toEqual({ tier: "pro" });
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).includes("/api/portal")),
+    ).toBe(false);
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).includes("/api/checkout")),
+    ).toBe(false);
+  });
+
+  it("changes an existing Pro subscription to Plus instead of opening the billing portal", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.spyOn(global, "fetch").mockImplementation((input) => {
+      const url = String(input);
+      if (url.includes("/api/subscription") && !url.includes("/api/subscription/change")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ tier: "pro" }), { status: 200 }),
+        );
+      }
+      if (url.includes("/api/me")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ user: { id: "user-1" } }), {
+            status: 200,
+          }),
+        );
+      }
+      if (url.includes("/api/subscription/change")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ url: "http://localhost/dashboard" }), {
+            status: 200,
+          }),
+        );
+      }
+      return Promise.reject(new Error(`unexpected fetch: ${url}`));
+    });
+
+    const location = { href: "http://localhost/pricing" };
+    vi.stubGlobal("location", location);
+
+    render(<PricingPageClient />);
+    await screen.findByRole("button", { name: "Current plan" });
+    await user.click(screen.getByRole("button", { name: "Downgrade to Plus" }));
+
+    await waitFor(() => {
+      expect(location.href).toBe("http://localhost/dashboard");
+    });
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) =>
+          String(url).includes("/api/subscription/change") && init?.method === "POST",
+      ),
+    ).toBe(true);
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).includes("/api/portal")),
+    ).toBe(false);
+  });
+
+  it("schedules cancel-at-period-end when a Plus customer chooses Cancel to Free", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.spyOn(global, "fetch").mockImplementation((input) => {
+      const url = String(input);
+      if (url.includes("/api/subscription") && !url.includes("/api/subscription/cancel")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ tier: "plus" }), { status: 200 }),
+        );
+      }
+      if (url.includes("/api/subscription/cancel")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ cancelAtPeriodEnd: true }), { status: 200 }),
+        );
+      }
+      return Promise.reject(new Error(`unexpected fetch: ${url}`));
+    });
+
+    const location = { href: "http://localhost/pricing" };
+    vi.stubGlobal("location", location);
+
+    render(<PricingPageClient />);
+    await screen.findByRole("button", { name: "Current plan" });
+    await user.click(screen.getByRole("button", { name: "Cancel to Free" }));
+
+    await waitFor(() => {
+      expect(location.href).toBe("/dashboard");
+    });
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) =>
+          String(url).includes("/api/subscription/cancel") && init?.method === "POST",
+      ),
+    ).toBe(true);
     expect(
       fetchMock.mock.calls.some(([url]) => String(url).includes("/api/checkout")),
     ).toBe(false);
