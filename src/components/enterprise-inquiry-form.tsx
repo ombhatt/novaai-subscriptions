@@ -65,18 +65,7 @@ export function EnterpriseInquiryForm({
   }
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      data-testid="enterprise-inquiry-form"
-      className="mx-auto max-w-md space-y-4 rounded-xl border bg-card p-6"
-    >
-      <div>
-        <h2 className="text-lg font-semibold tracking-tight">Talk to sales</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Tell us about your team. This does not start a Stripe checkout.
-        </p>
-      </div>
-
+    <form onSubmit={handleSubmit} data-testid="enterprise-inquiry-form" className="space-y-4">
       <div className="space-y-2">
         <Label htmlFor="enterprise-email">Work email</Label>
         <Input
