@@ -143,6 +143,136 @@ describe("PricingCards", () => {
     expect(screen.getByText("$0")).toBeInTheDocument();
   });
 
+  it("says an annual upgrade to a monthly plan waits until renewal", () => {
+    render(
+      <PricingCards currentTier="plus" billingInterval="year" selectedInterval="month" />,
+    );
+
+    expect(screen.getByRole("button", { name: "Switch to monthly at renewal" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Upgrade to Pro at renewal" })).toBeEnabled();
+  });
+
+  it("labels an immediate move from Pro monthly to Plus annual as a switch", () => {
+    render(
+      <PricingCards currentTier="pro" billingInterval="month" selectedInterval="year" />,
+    );
+
+    expect(screen.getByRole("button", { name: "Switch to Plus annual" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Switch to annual" })).toBeEnabled();
+  });
+
+  it.each([
+    {
+      from: "Plus monthly",
+      to: "Plus annual",
+      currentTier: "plus",
+      billingInterval: "month",
+      selectedInterval: "year",
+      label: "Switch to annual",
+    },
+    {
+      from: "Plus monthly",
+      to: "Pro monthly",
+      currentTier: "plus",
+      billingInterval: "month",
+      selectedInterval: "month",
+      label: "Upgrade to Pro",
+    },
+    {
+      from: "Plus monthly",
+      to: "Pro annual",
+      currentTier: "plus",
+      billingInterval: "month",
+      selectedInterval: "year",
+      label: "Upgrade to Pro",
+    },
+    {
+      from: "Plus annual",
+      to: "Pro annual",
+      currentTier: "plus",
+      billingInterval: "year",
+      selectedInterval: "year",
+      label: "Upgrade to Pro",
+    },
+    {
+      from: "Pro monthly",
+      to: "Pro annual",
+      currentTier: "pro",
+      billingInterval: "month",
+      selectedInterval: "year",
+      label: "Switch to annual",
+    },
+    {
+      from: "Pro monthly",
+      to: "Plus annual",
+      currentTier: "pro",
+      billingInterval: "month",
+      selectedInterval: "year",
+      label: "Switch to Plus annual",
+    },
+    {
+      from: "Pro monthly",
+      to: "Plus monthly",
+      currentTier: "pro",
+      billingInterval: "month",
+      selectedInterval: "month",
+      label: "Downgrade to Plus",
+    },
+    {
+      from: "Plus annual",
+      to: "Plus monthly",
+      currentTier: "plus",
+      billingInterval: "year",
+      selectedInterval: "month",
+      label: "Switch to monthly at renewal",
+    },
+    {
+      from: "Plus annual",
+      to: "Pro monthly",
+      currentTier: "plus",
+      billingInterval: "year",
+      selectedInterval: "month",
+      label: "Upgrade to Pro at renewal",
+    },
+    {
+      from: "Pro annual",
+      to: "Pro monthly",
+      currentTier: "pro",
+      billingInterval: "year",
+      selectedInterval: "month",
+      label: "Switch to monthly at renewal",
+    },
+    {
+      from: "Pro annual",
+      to: "Plus monthly",
+      currentTier: "pro",
+      billingInterval: "year",
+      selectedInterval: "month",
+      label: "Downgrade to Plus at renewal",
+    },
+    {
+      from: "Pro annual",
+      to: "Plus annual",
+      currentTier: "pro",
+      billingInterval: "year",
+      selectedInterval: "year",
+      label: "Downgrade to Plus at renewal",
+    },
+  ] as const)(
+    "labels $from to $to as $label",
+    ({ currentTier, billingInterval, selectedInterval, label }) => {
+      render(
+        <PricingCards
+          currentTier={currentTier}
+          billingInterval={billingInterval}
+          selectedInterval={selectedInterval}
+        />,
+      );
+
+      expect(screen.getByRole("button", { name: label })).toBeEnabled();
+    },
+  );
+
   it("labels a same-tier interval change without calling it an upgrade", () => {
     render(
       <PricingCards currentTier="plus" billingInterval="month" selectedInterval="year" />,

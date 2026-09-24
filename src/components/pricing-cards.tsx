@@ -135,15 +135,30 @@ export function PricingCards({
         const isDowngrade = compareTiers(tier, currentTier) < 0;
         const isPopular = tier === "plus";
         const isEnterprise = tier === "enterprise";
+        const waitsUntilRenewal =
+          intervalApplies &&
+          currentInterval === "year" &&
+          (interval === "month" || isDowngrade);
+        const chargesNowForLowerAnnual =
+          intervalApplies &&
+          isDowngrade &&
+          currentInterval === "month" &&
+          interval === "year";
         const actionLabel = isCurrent
           ? "Current plan"
           : sameTierDifferentInterval
             ? interval === "year"
               ? "Switch to annual"
-              : "Switch to monthly"
-            : isDowngrade
-              ? `Downgrade to ${details.label}`
-              : `Upgrade to ${details.label}`;
+              : "Switch to monthly at renewal"
+            : chargesNowForLowerAnnual
+              ? `Switch to ${details.label} annual`
+              : waitsUntilRenewal && isDowngrade
+                ? `Downgrade to ${details.label} at renewal`
+                : waitsUntilRenewal
+                  ? `Upgrade to ${details.label} at renewal`
+                  : isDowngrade
+                    ? `Downgrade to ${details.label}`
+                    : `Upgrade to ${details.label}`;
 
         return (
           <div key={tier} className="relative">

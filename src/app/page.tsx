@@ -19,8 +19,8 @@ export default function HomePage() {
             </h1>
             <p className="mt-6 text-lg text-muted-foreground">
               NovaAI bundles authentication, tiered entitlements, Stripe billing, and usage
-              tracking in one Supabase + Next.js stack. Free, Plus, and Pro — fixed monthly
-              prices with clear request limits.
+              tracking in one Supabase + Next.js stack. Free, Plus, and Pro — Plus and Pro
+              bill monthly or annually, with clear request limits.
             </p>
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <Link href="/signup" className={buttonVariants({ size: "lg" })}>

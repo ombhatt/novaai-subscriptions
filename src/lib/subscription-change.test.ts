@@ -339,3 +339,249 @@ describe("changePaidSubscriptionTier", () => {
     expect(getStripeMock).not.toHaveBeenCalled();
   });
 });
+
+const planChanges = [
+  {
+    from: "Plus monthly",
+    to: "Plus annual",
+    tier: "plus",
+    interval: "month",
+    nextTier: "plus",
+    nextInterval: "year",
+    currentPrice: "price_plus",
+    nextPrice: "price_plus_annual",
+    when: "now",
+    proration: "always_invoice",
+  },
+  {
+    from: "Plus monthly",
+    to: "Pro monthly",
+    tier: "plus",
+    interval: "month",
+    nextTier: "pro",
+    nextInterval: "month",
+    currentPrice: "price_plus",
+    nextPrice: "price_pro",
+    when: "now",
+    proration: "always_invoice",
+  },
+  {
+    from: "Plus monthly",
+    to: "Pro annual",
+    tier: "plus",
+    interval: "month",
+    nextTier: "pro",
+    nextInterval: "year",
+    currentPrice: "price_plus",
+    nextPrice: "price_pro_annual",
+    when: "now",
+    proration: "always_invoice",
+  },
+  {
+    from: "Plus annual",
+    to: "Pro annual",
+    tier: "plus",
+    interval: "year",
+    nextTier: "pro",
+    nextInterval: "year",
+    currentPrice: "price_plus_annual",
+    nextPrice: "price_pro_annual",
+    when: "now",
+    proration: "always_invoice",
+  },
+  {
+    from: "Pro monthly",
+    to: "Pro annual",
+    tier: "pro",
+    interval: "month",
+    nextTier: "pro",
+    nextInterval: "year",
+    currentPrice: "price_pro",
+    nextPrice: "price_pro_annual",
+    when: "now",
+    proration: "always_invoice",
+  },
+  {
+    from: "Pro monthly",
+    to: "Plus annual",
+    tier: "pro",
+    interval: "month",
+    nextTier: "plus",
+    nextInterval: "year",
+    currentPrice: "price_pro",
+    nextPrice: "price_plus_annual",
+    when: "now",
+    proration: "always_invoice",
+  },
+  {
+    from: "Pro monthly",
+    to: "Plus monthly",
+    tier: "pro",
+    interval: "month",
+    nextTier: "plus",
+    nextInterval: "month",
+    currentPrice: "price_pro",
+    nextPrice: "price_plus",
+    when: "now",
+    proration: "create_prorations",
+  },
+  {
+    from: "Plus annual",
+    to: "Plus monthly",
+    tier: "plus",
+    interval: "year",
+    nextTier: "plus",
+    nextInterval: "month",
+    currentPrice: "price_plus_annual",
+    nextPrice: "price_plus",
+    when: "renewal",
+  },
+  {
+    from: "Plus annual",
+    to: "Pro monthly",
+    tier: "plus",
+    interval: "year",
+    nextTier: "pro",
+    nextInterval: "month",
+    currentPrice: "price_plus_annual",
+    nextPrice: "price_pro",
+    when: "renewal",
+  },
+  {
+    from: "Pro annual",
+    to: "Pro monthly",
+    tier: "pro",
+    interval: "year",
+    nextTier: "pro",
+    nextInterval: "month",
+    currentPrice: "price_pro_annual",
+    nextPrice: "price_pro",
+    when: "renewal",
+  },
+  {
+    from: "Pro annual",
+    to: "Plus monthly",
+    tier: "pro",
+    interval: "year",
+    nextTier: "plus",
+    nextInterval: "month",
+    currentPrice: "price_pro_annual",
+    nextPrice: "price_plus",
+    when: "renewal",
+  },
+  {
+    from: "Pro annual",
+    to: "Plus annual",
+    tier: "pro",
+    interval: "year",
+    nextTier: "plus",
+    nextInterval: "year",
+    currentPrice: "price_pro_annual",
+    nextPrice: "price_plus_annual",
+    when: "renewal",
+  },
+] as const;
+
+describe("every paid tier and billing cycle change", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubEnv("STRIPE_PRICE_PLUS", "price_plus");
+    vi.stubEnv("STRIPE_PRICE_PRO", "price_pro");
+    vi.stubEnv("STRIPE_PRICE_PLUS_ANNUAL", "price_plus_annual");
+    vi.stubEnv("STRIPE_PRICE_PRO_ANNUAL", "price_pro_annual");
+    upsertMock.mockResolvedValue(undefined);
+  });
+
+  it.each(planChanges)(
+    "moves $from to $to at $when",
+    async ({
+      tier,
+      interval,
+      nextTier,
+      nextInterval,
+      currentPrice,
+      nextPrice,
+      when,
+      ...change
+    }) => {
+      const retrieve = vi.fn().mockResolvedValue({
+        id: "sub_stripe",
+        schedule: null,
+        items: {
+          data: [
+            {
+              id: "si_1",
+              price: { id: currentPrice },
+              current_period_end: 1_800_000_000,
+            },
+          ],
+        },
+      });
+      const update = vi.fn().mockResolvedValue({
+        id: "sub_stripe",
+        items: { data: [{ id: "si_1", price: { id: nextPrice } }] },
+      });
+      const createSchedule = vi.fn().mockResolvedValue({
+        id: "sched_1",
+        phases: [{ start_date: 1_700_000_000 }],
+      });
+      const updateSchedule = vi.fn().mockResolvedValue({ id: "sched_1" });
+      getStripeMock.mockReturnValue({
+        subscriptions: { retrieve, update },
+        subscriptionSchedules: { create: createSchedule, update: updateSchedule },
+      });
+      const admin = createSupabaseMock();
+      createAdminClientMock.mockReturnValue(admin);
+
+      const result = await changePaidSubscriptionTier(
+        makeSubscription({
+          tier,
+          billing_interval: interval,
+          stripe_customer_id: "cus_1",
+          stripe_subscription_id: "sub_stripe",
+        }) as Subscription,
+        nextTier,
+        0,
+        nextInterval,
+      );
+
+      expect(result).toEqual({ ok: true });
+
+      if (when === "renewal") {
+        expect(update).not.toHaveBeenCalled();
+        expect(upsertMock).not.toHaveBeenCalled();
+        expect(updateSchedule).toHaveBeenCalledWith("sched_1", {
+          end_behavior: "release",
+          phases: [
+            {
+              items: [{ price: currentPrice, quantity: 1 }],
+              start_date: 1_700_000_000,
+              end_date: 1_800_000_000,
+            },
+            { items: [{ price: nextPrice, quantity: 1 }] },
+          ],
+        });
+        expect(admin.builders.subscriptions.builder.lastUpdate).toEqual(
+          expect.objectContaining({
+            pending_tier: nextTier,
+            pending_billing_interval: nextInterval,
+          }),
+        );
+        return;
+      }
+
+      if (!("proration" in change)) {
+        throw new Error(`Missing proration for an immediate change to ${nextPrice}`);
+      }
+      expect(createSchedule).not.toHaveBeenCalled();
+      expect(update).toHaveBeenCalledWith("sub_stripe", {
+        items: [{ id: "si_1", price: nextPrice }],
+        proration_behavior: change.proration,
+        ...(change.proration === "always_invoice"
+          ? { payment_behavior: "error_if_incomplete" }
+          : {}),
+      });
+      expect(upsertMock).toHaveBeenCalled();
+    },
+  );
+});
