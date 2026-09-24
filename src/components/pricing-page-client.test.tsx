@@ -120,6 +120,7 @@ describe("PricingPageClient", () => {
       expect(checkoutCall).toBeDefined();
       expect(JSON.parse(String(checkoutCall?.[1]?.body))).toEqual({
         tier: "plus",
+        interval: "month",
         promoCode: "WELCOME20",
       });
     });
@@ -227,6 +228,7 @@ describe("PricingPageClient", () => {
       });
       expect(JSON.parse(String(checkoutCall?.[1]?.body))).toEqual({
         tier: "plus",
+        interval: "month",
       });
     });
   });
@@ -304,7 +306,10 @@ describe("PricingPageClient", () => {
       ([url, init]) =>
         String(url).includes("/api/subscription/change") && init?.method === "POST",
     );
-    expect(JSON.parse(String(changeCall?.[1]?.body))).toEqual({ tier: "pro" });
+    expect(JSON.parse(String(changeCall?.[1]?.body))).toEqual({
+      tier: "pro",
+      interval: "month",
+    });
     expect(
       fetchMock.mock.calls.some(([url]) => String(url).includes("/api/portal")),
     ).toBe(false);

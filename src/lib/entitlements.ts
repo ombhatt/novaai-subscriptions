@@ -1,5 +1,5 @@
 import { isWithinDunningGrace } from "@/lib/dunning";
-import type { Tier, SubscriptionStatus } from "@/lib/tiers";
+import type { BillingInterval, Tier, SubscriptionStatus } from "@/lib/tiers";
 import { TIER_LIMITS } from "@/lib/tiers";
 
 export interface Subscription {
@@ -11,6 +11,9 @@ export interface Subscription {
   stripe_subscription_id: string | null;
   current_period_start: string | null;
   current_period_end: string | null;
+  billing_interval: BillingInterval;
+  pending_tier: Tier | null;
+  pending_billing_interval: BillingInterval | null;
   cancel_at_period_end: boolean;
   grace_period_ends_at: string | null;
   created_at: string;
@@ -45,16 +48,53 @@ export function getCurrentPeriodStart(now = new Date()): string {
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
 }
 
-/** Paid plans key usage by Stripe's billing period; Free falls back to the UTC calendar month. */
+function daysInUtcMonth(year: number, monthIndex: number): number {
+  return new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
+}
+
+function formatUtcDate(year: number, monthIndex: number, day: number): string {
+  return `${year}-${String(monthIndex + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+/** Latest monthly anniversary of an annual subscription that is on or before `now`. */
+export function annualUsagePeriodStart(anchorDate: string, now: Date): string {
+  const [year, month, day] = anchorDate.split("-").map(Number);
+  const anchorUtc = Date.UTC(year, month - 1, day);
+  const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  if (todayUtc <= anchorUtc) return anchorDate;
+
+  let cursorYear = now.getUTCFullYear();
+  let cursorMonth = now.getUTCMonth();
+  const clampedDay = (cursorYear: number, cursorMonth: number) =>
+    Math.min(day, daysInUtcMonth(cursorYear, cursorMonth));
+
+  if (clampedDay(cursorYear, cursorMonth) > now.getUTCDate()) {
+    cursorMonth -= 1;
+    if (cursorMonth < 0) {
+      cursorMonth = 11;
+      cursorYear -= 1;
+    }
+  }
+
+  const cursorDay = clampedDay(cursorYear, cursorMonth);
+  if (Date.UTC(cursorYear, cursorMonth, cursorDay) < anchorUtc) return anchorDate;
+  return formatUtcDate(cursorYear, cursorMonth, cursorDay);
+}
+
+/** Monthly plans key usage by Stripe's billing period. Annual plans still reset every month. */
 export function usagePeriodStart(
-  subscription: Pick<Subscription, "current_period_start"> | null,
+  subscription: Pick<Subscription, "current_period_start" | "billing_interval"> | null,
   now = new Date(),
 ): string {
   const fromStripe = subscription?.current_period_start?.slice(0, 10);
-  if (fromStripe && /^\d{4}-\d{2}-\d{2}$/.test(fromStripe)) {
-    return fromStripe;
+  const stripeDate =
+    fromStripe && /^\d{4}-\d{2}-\d{2}$/.test(fromStripe) ? fromStripe : null;
+
+  if (subscription?.billing_interval === "year") {
+    return stripeDate ? annualUsagePeriodStart(stripeDate, now) : getCurrentPeriodStart(now);
   }
-  return getCurrentPeriodStart(now);
+
+  return stripeDate ?? getCurrentPeriodStart(now);
 }
 
 export function evaluateEntitlement(

@@ -1,14 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { makeSubscription } from "@/test/mocks/supabase";
+import { createSupabaseMock, makeSubscription } from "@/test/mocks/supabase";
 import type { Subscription } from "@/lib/entitlements";
 
-const { getStripeMock, upsertMock } = vi.hoisted(() => ({
+const { getStripeMock, upsertMock, createAdminClientMock } = vi.hoisted(() => ({
   getStripeMock: vi.fn(),
   upsertMock: vi.fn(),
+  createAdminClientMock: vi.fn(),
 }));
 
 vi.mock("@/lib/stripe", () => ({
   getStripe: getStripeMock,
+}));
+
+vi.mock("@/lib/supabase/admin", () => ({
+  createAdminClient: createAdminClientMock,
 }));
 
 vi.mock("@/lib/stripe-webhook-handler", () => ({
@@ -22,6 +27,8 @@ describe("changePaidSubscriptionTier", () => {
     vi.clearAllMocks();
     vi.stubEnv("STRIPE_PRICE_PLUS", "price_plus");
     vi.stubEnv("STRIPE_PRICE_PRO", "price_pro");
+    vi.stubEnv("STRIPE_PRICE_PLUS_ANNUAL", "price_plus_annual");
+    vi.stubEnv("STRIPE_PRICE_PRO_ANNUAL", "price_pro_annual");
     upsertMock.mockResolvedValue(undefined);
   });
 
@@ -173,5 +180,162 @@ describe("changePaidSubscriptionTier", () => {
       "card declined",
     );
     expect(upsertMock).not.toHaveBeenCalled();
+  });
+
+  it("charges Plus monthly to annual immediately", async () => {
+    const retrieve = vi.fn().mockResolvedValue({
+      id: "sub_stripe",
+      items: { data: [{ id: "si_plus", price: { id: "price_plus" } }] },
+    });
+    const update = vi.fn().mockResolvedValue({
+      id: "sub_stripe",
+      items: { data: [{ id: "si_plus", price: { id: "price_plus_annual" } }] },
+    });
+    getStripeMock.mockReturnValue({ subscriptions: { retrieve, update } });
+
+    const result = await changePaidSubscriptionTier(
+      makeSubscription({
+        tier: "plus",
+        billing_interval: "month",
+        stripe_customer_id: "cus_1",
+        stripe_subscription_id: "sub_stripe",
+      }) as Subscription,
+      "plus",
+      0,
+      "year",
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(update).toHaveBeenCalledWith("sub_stripe", {
+      items: [{ id: "si_plus", price: "price_plus_annual" }],
+      payment_behavior: "error_if_incomplete",
+      proration_behavior: "always_invoice",
+    });
+  });
+
+  it("releases a scheduled change before an immediate upgrade", async () => {
+    const retrieve = vi.fn().mockResolvedValue({
+      id: "sub_stripe",
+      schedule: "sched_old",
+      items: { data: [{ id: "si_plus", price: { id: "price_plus" } }] },
+    });
+    const update = vi.fn().mockResolvedValue({
+      id: "sub_stripe",
+      items: { data: [{ id: "si_plus", price: { id: "price_pro" } }] },
+    });
+    const release = vi.fn().mockResolvedValue({ id: "sched_old" });
+    getStripeMock.mockReturnValue({
+      subscriptions: { retrieve, update },
+      subscriptionSchedules: { release },
+    });
+    const admin = createSupabaseMock();
+    createAdminClientMock.mockReturnValue(admin);
+
+    const result = await changePaidSubscriptionTier(
+      makeSubscription({
+        tier: "plus",
+        billing_interval: "month",
+        pending_tier: "plus",
+        pending_billing_interval: "year",
+        stripe_customer_id: "cus_1",
+        stripe_subscription_id: "sub_stripe",
+      }) as Subscription,
+      "pro",
+      0,
+      "month",
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(release).toHaveBeenCalledWith("sched_old");
+    expect(admin.builders.subscriptions.builder.lastUpdate).toEqual(
+      expect.objectContaining({
+        pending_tier: null,
+        pending_billing_interval: null,
+      }),
+    );
+  });
+
+  it("schedules a move off annual billing until the current period ends", async () => {
+    const retrieve = vi.fn().mockResolvedValue({
+      id: "sub_stripe",
+      schedule: null,
+      items: {
+        data: [
+          {
+            id: "si_plus",
+            price: { id: "price_plus_annual" },
+            current_period_end: 1_800_000_000,
+          },
+        ],
+      },
+    });
+    const update = vi.fn();
+    const createSchedule = vi.fn().mockResolvedValue({
+      id: "sched_1",
+      phases: [{ start_date: 1_700_000_000 }],
+    });
+    const updateSchedule = vi.fn().mockResolvedValue({ id: "sched_1" });
+    getStripeMock.mockReturnValue({
+      subscriptions: { retrieve, update },
+      subscriptionSchedules: { create: createSchedule, update: updateSchedule },
+    });
+    const admin = createSupabaseMock();
+    createAdminClientMock.mockReturnValue(admin);
+
+    const result = await changePaidSubscriptionTier(
+      makeSubscription({
+        tier: "plus",
+        billing_interval: "year",
+        stripe_customer_id: "cus_1",
+        stripe_subscription_id: "sub_stripe",
+      }) as Subscription,
+      "plus",
+      0,
+      "month",
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(update).not.toHaveBeenCalled();
+    expect(upsertMock).not.toHaveBeenCalled();
+    expect(createSchedule).toHaveBeenCalledWith({ from_subscription: "sub_stripe" });
+    expect(updateSchedule).toHaveBeenCalledWith("sched_1", {
+      end_behavior: "release",
+      phases: [
+        {
+          items: [{ price: "price_plus_annual", quantity: 1 }],
+          start_date: 1_700_000_000,
+          end_date: 1_800_000_000,
+        },
+        { items: [{ price: "price_plus", quantity: 1 }] },
+      ],
+    });
+    expect(admin.builders.subscriptions.builder.lastUpdate).toEqual(
+      expect.objectContaining({
+        pending_tier: "plus",
+        pending_billing_interval: "month",
+      }),
+    );
+  });
+
+  it("asks the customer to resume before leaving annual billing during a cancellation", async () => {
+    const result = await changePaidSubscriptionTier(
+      makeSubscription({
+        tier: "plus",
+        billing_interval: "year",
+        cancel_at_period_end: true,
+        stripe_customer_id: "cus_1",
+        stripe_subscription_id: "sub_stripe",
+      }) as Subscription,
+      "plus",
+      0,
+      "month",
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      status: 409,
+      error: "Resume your plan before switching off annual billing.",
+    });
+    expect(getStripeMock).not.toHaveBeenCalled();
   });
 });

@@ -3,13 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { checkoutResumePath, checkoutTierFromPlan } from "@/lib/checkout-resume";
-import { TIER_LIMITS } from "@/lib/tiers";
+import { parseBillingInterval, TIER_LIMITS } from "@/lib/tiers";
 
 export function CheckoutStart() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const plan = searchParams.get("plan");
   const promo = searchParams.get("promo");
+  const interval = parseBillingInterval(searchParams.get("interval"));
   const tier = checkoutTierFromPlan(plan);
   const started = useRef(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,13 +30,14 @@ export function CheckoutStart() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         tier,
+        interval,
         ...(trimmedPromo ? { promoCode: trimmedPromo } : {}),
       }),
     })
       .then(async (response) => {
         const json = (await response.json()) as { url?: string; error?: string };
         if (response.status === 401) {
-          const resume = checkoutResumePath(tier, trimmedPromo);
+          const resume = checkoutResumePath(tier, trimmedPromo, interval);
           const params = resume ? new URL(resume, "http://localhost").search : "";
           router.replace(`/login${params}`);
           return;
@@ -48,7 +50,7 @@ export function CheckoutStart() {
       .catch((err: unknown) => {
         setError(err instanceof Error ? err.message : "Checkout failed");
       });
-  }, [plan, promo, router, tier]);
+  }, [interval, plan, promo, router, tier]);
 
   if (!tier) {
     return null;

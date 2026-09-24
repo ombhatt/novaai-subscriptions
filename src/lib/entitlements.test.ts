@@ -46,6 +46,31 @@ describe("usagePeriodStart", () => {
     expect(usagePeriodStart(makeSubscription() as Subscription)).toBe("2026-09-01");
   });
 
+  it("resets annual usage on the monthly anniversary of the subscription start", () => {
+    const sub = makeSubscription({
+      tier: "plus",
+      billing_interval: "year",
+      current_period_start: "2026-01-15T00:00:00.000Z",
+    }) as Subscription;
+
+    expect(usagePeriodStart(sub, new Date("2026-03-20T00:00:00.000Z"))).toBe("2026-03-15");
+    expect(usagePeriodStart(sub, new Date("2026-03-10T00:00:00.000Z"))).toBe("2026-02-15");
+    expect(usagePeriodStart(sub, new Date("2026-01-15T00:00:00.000Z"))).toBe("2026-01-15");
+    expect(usagePeriodStart(sub, new Date("2026-01-10T00:00:00.000Z"))).toBe("2026-01-15");
+  });
+
+  it("clamps an annual anniversary to the last day of a short month", () => {
+    const sub = makeSubscription({
+      tier: "pro",
+      billing_interval: "year",
+      current_period_start: "2026-01-31T00:00:00.000Z",
+    }) as Subscription;
+
+    expect(usagePeriodStart(sub, new Date("2026-02-28T00:00:00.000Z"))).toBe("2026-02-28");
+    expect(usagePeriodStart(sub, new Date("2026-03-15T00:00:00.000Z"))).toBe("2026-02-28");
+    expect(usagePeriodStart(sub, new Date("2026-03-31T00:00:00.000Z"))).toBe("2026-03-31");
+  });
+
   it("falls back when current_period_start is not a date prefix", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-10T00:00:00.000Z"));

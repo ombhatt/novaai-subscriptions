@@ -41,7 +41,7 @@ export default function PricingPage() {
           </h1>
           <p className="mt-4 text-muted-foreground">
             Start free and upgrade when you need more requests, better models, or priority
-            support. All plans bill monthly through Stripe.
+            support. Plus and Pro bill monthly or annually through Stripe.
           </p>
         </div>
         <Suspense fallback={<PricingFallback />}>
