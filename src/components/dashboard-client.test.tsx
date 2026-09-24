@@ -93,6 +93,37 @@ describe("DashboardClient", () => {
     );
   });
 
+  it("shows annual renewal and a monthly usage window", async () => {
+    vi.spyOn(global, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          subscription: {
+            billing_interval: "year",
+            current_period_start: "2026-01-15T00:00:00.000Z",
+            current_period_end: "2027-01-15T00:00:00.000Z",
+            pending_tier: "plus",
+            pending_billing_interval: "month",
+          },
+          usage: 12,
+          limit: 50000,
+          remaining: 49988,
+          tier: "plus",
+          status: "active",
+        }),
+        { status: 200 },
+      ),
+    );
+
+    render(<DashboardClient />);
+
+    expect(await screen.findByTestId("dashboard-plan")).toHaveTextContent("$200/year");
+    expect(screen.getByText(/requests remaining this month/)).toBeInTheDocument();
+    expect(screen.getByTestId("dashboard-renewal")).toHaveTextContent(/Renews annually on/);
+    expect(screen.getByTestId("pending-plan-change")).toHaveTextContent(
+      /Switches to Plus monthly on/,
+    );
+  });
+
   it("shows an error state when subscription fetch fails", async () => {
     vi.spyOn(global, "fetch").mockResolvedValueOnce(
       new Response("nope", { status: 500 }),

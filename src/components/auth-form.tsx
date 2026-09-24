@@ -22,6 +22,7 @@ interface AuthFormProps {
   mode: "login" | "signup";
   plan?: string | null;
   promo?: string | null;
+  interval?: string | null;
 }
 
 export function AuthFormFromSearchParams({ mode }: { mode: "login" | "signup" }) {
@@ -31,11 +32,12 @@ export function AuthFormFromSearchParams({ mode }: { mode: "login" | "signup" })
       mode={mode}
       plan={searchParams.get("plan")}
       promo={searchParams.get("promo")}
+      interval={searchParams.get("interval")}
     />
   );
 }
 
-export function AuthForm({ mode, plan = null, promo = null }: AuthFormProps) {
+export function AuthForm({ mode, plan = null, promo = null, interval = null }: AuthFormProps) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -45,7 +47,7 @@ export function AuthForm({ mode, plan = null, promo = null }: AuthFormProps) {
 
   const isLogin = mode === "login";
   const checkoutTier = checkoutTierFromPlan(plan);
-  const resumePath = checkoutResumePath(plan, promo);
+  const resumePath = checkoutResumePath(plan, promo, interval);
   const otherModeHref = `${isLogin ? "/signup" : "/login"}${
     resumePath ? new URL(resumePath, "http://localhost").search : ""
   }`;

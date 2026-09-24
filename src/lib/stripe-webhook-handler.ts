@@ -5,8 +5,41 @@ import {
   getInvoiceSubscriptionId,
   getSubscriptionPeriod,
 } from "@/lib/stripe-subscription";
-import { tierFromStripePriceId } from "@/lib/tiers";
+import {
+  billingIntervalFromStripePrice,
+  tierFromStripePriceId,
+  type BillingInterval,
+  type Tier,
+} from "@/lib/tiers";
 import type { SubscriptionStatus } from "@/lib/tiers";
+
+async function pendingPlanColumns(
+  userId: string,
+  tier: Tier,
+  billingInterval: BillingInterval,
+) {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("subscriptions")
+    .select("pending_tier, pending_billing_interval")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to look up a scheduled plan change: ${error.message}`);
+  }
+
+  const waiting =
+    data?.pending_tier &&
+    (data.pending_tier !== tier || data.pending_billing_interval !== billingInterval);
+
+  return waiting
+    ? {
+        pending_tier: data.pending_tier,
+        pending_billing_interval: data.pending_billing_interval,
+      }
+    : { pending_tier: null, pending_billing_interval: null };
+}
 
 function mapStripeStatus(status: Stripe.Subscription.Status): SubscriptionStatus {
   switch (status) {
@@ -111,8 +144,11 @@ export async function upsertSubscriptionFromStripe(
   subscription: Stripe.Subscription,
 ) {
   const supabase = createAdminClient();
-  const priceId = subscription.items.data[0]?.price.id;
+  const price = subscription.items.data[0]?.price;
+  const priceId = price?.id;
   const tier = tierFromStripePriceId(priceId);
+  const billingInterval = billingIntervalFromStripePrice(price);
+  const pending = await pendingPlanColumns(userId, tier, billingInterval);
   const { currentPeriodStart, currentPeriodEnd } = getSubscriptionPeriod(subscription);
   const status = mapStripeStatus(subscription.status);
   const gracePeriodEndsAt = nextGracePeriodEndsAt(
@@ -126,6 +162,8 @@ export async function upsertSubscriptionFromStripe(
       stripe_customer_id: customerId,
       stripe_subscription_id: subscription.id,
       tier,
+      billing_interval: billingInterval,
+      ...pending,
       status,
       current_period_start: currentPeriodStart
         ? new Date(currentPeriodStart * 1000).toISOString()
@@ -176,6 +214,9 @@ export async function downgradeToFree(
     .from("subscriptions")
     .update({
       tier: "free",
+      billing_interval: "month",
+      pending_tier: null,
+      pending_billing_interval: null,
       status: "active",
       stripe_subscription_id: null,
       cancel_at_period_end: false,

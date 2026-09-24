@@ -1,4 +1,4 @@
-import { isCheckoutTier, type CheckoutTier } from "@/lib/tiers";
+import { isCheckoutTier, parseBillingInterval, type BillingInterval, type CheckoutTier } from "@/lib/tiers";
 
 export function checkoutTierFromPlan(
   plan: string | null | undefined,
@@ -10,6 +10,7 @@ export function checkoutTierFromPlan(
 export function checkoutResumePath(
   plan: string | null | undefined,
   promo: string | null | undefined,
+  interval: string | null | undefined = null,
 ): string | null {
   const tier = checkoutTierFromPlan(plan);
   if (!tier) {
@@ -17,6 +18,10 @@ export function checkoutResumePath(
   }
 
   const params = new URLSearchParams({ plan: tier });
+  const billingInterval: BillingInterval = parseBillingInterval(interval);
+  if (billingInterval === "year") {
+    params.set("interval", "year");
+  }
   const trimmedPromo = promo?.trim();
   if (trimmedPromo) {
     params.set("promo", trimmedPromo);

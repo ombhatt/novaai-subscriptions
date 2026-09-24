@@ -57,12 +57,16 @@ const tiers = [
     description: "50,000 requests/month with standard models",
     unitAmount: 2000,
     envKey: "STRIPE_PRICE_PLUS",
+    annualUnitAmount: 20000,
+    annualEnvKey: "STRIPE_PRICE_PLUS_ANNUAL",
   },
   {
     name: "NovaAI Pro",
     description: "500,000 requests/month with all models and priority",
     unitAmount: 9900,
     envKey: "STRIPE_PRICE_PRO",
+    annualUnitAmount: 99000,
+    annualEnvKey: "STRIPE_PRICE_PRO_ANNUAL",
   },
 ];
 
@@ -72,32 +76,51 @@ const createdPriceKeys = [];
 
 for (const tier of tiers) {
   const existingPriceId = process.env[tier.envKey];
+  let productId;
 
   if (isConfiguredPriceId(existingPriceId)) {
     console.log(`${tier.name}`);
     console.log(`  Already configured: ${tier.envKey}=${existingPriceId}`);
-    console.log("  Skipping product/price creation.\n");
+    const monthly = await stripe.prices.retrieve(existingPriceId);
+    productId = typeof monthly.product === "string" ? monthly.product : monthly.product.id;
+  } else {
+    const product = await stripe.products.create({
+      name: tier.name,
+      description: tier.description,
+    });
+    productId = product.id;
+
+    const price = await stripe.prices.create({
+      product: productId,
+      unit_amount: tier.unitAmount,
+      currency: "usd",
+      recurring: { interval: "month" },
+    });
+
+    createdPriceKeys.push(`${tier.envKey}=${price.id}`);
+
+    console.log(`${tier.name}`);
+    console.log(`  Product ID: ${product.id}`);
+    console.log(`  Price ID:   ${price.id}`);
+    console.log(`  Add to .env.local: ${tier.envKey}=${price.id}`);
+  }
+
+  const existingAnnualId = process.env[tier.annualEnvKey];
+  if (isConfiguredPriceId(existingAnnualId)) {
+    console.log(`  Already configured: ${tier.annualEnvKey}=${existingAnnualId}\n`);
     continue;
   }
 
-  const product = await stripe.products.create({
-    name: tier.name,
-    description: tier.description,
-  });
-
-  const price = await stripe.prices.create({
-    product: product.id,
-    unit_amount: tier.unitAmount,
+  const annualPrice = await stripe.prices.create({
+    product: productId,
+    unit_amount: tier.annualUnitAmount,
     currency: "usd",
-    recurring: { interval: "month" },
+    recurring: { interval: "year" },
   });
 
-  createdPriceKeys.push(`${tier.envKey}=${price.id}`);
-
-  console.log(`${tier.name}`);
-  console.log(`  Product ID: ${product.id}`);
-  console.log(`  Price ID:   ${price.id}`);
-  console.log(`  Add to .env.local: ${tier.envKey}=${price.id}\n`);
+  createdPriceKeys.push(`${tier.annualEnvKey}=${annualPrice.id}`);
+  console.log(`  Annual price: ${annualPrice.id}`);
+  console.log(`  Add to .env.local: ${tier.annualEnvKey}=${annualPrice.id}\n`);
 }
 
 const SAMPLE_PROMO_CODE = "WELCOME20";

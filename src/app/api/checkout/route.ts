@@ -4,7 +4,12 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { findActivePromotionCode } from "@/lib/stripe-promo";
-import { isCheckoutTier, stripePriceIdForTier, type Tier } from "@/lib/tiers";
+import {
+  isCheckoutTier,
+  parseBillingInterval,
+  stripePriceIdForTier,
+  type Tier,
+} from "@/lib/tiers";
 
 function isStripeInvalidRequestError(
   error: unknown,
@@ -34,8 +39,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { tier, promoCode: rawPromoCode } = (await request.json()) as {
+  const { tier, interval: rawInterval, promoCode: rawPromoCode } = (await request.json()) as {
     tier?: Tier;
+    interval?: string;
     promoCode?: string;
   };
 
@@ -43,7 +49,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid tier for checkout." }, { status: 400 });
   }
 
-  const priceId = stripePriceIdForTier(tier);
+  const interval = parseBillingInterval(rawInterval);
+  const priceId = stripePriceIdForTier(tier, interval);
 
   if (!priceId) {
     return NextResponse.json(

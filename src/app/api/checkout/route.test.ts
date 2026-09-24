@@ -182,6 +182,42 @@ describe("POST /api/checkout", () => {
     expect(createCheckout).not.toHaveBeenCalled();
   });
 
+  it("creates a checkout session for plus annual", async () => {
+    vi.stubEnv("STRIPE_PRICE_PLUS_ANNUAL", "price_plus_annual");
+    isStripeConfiguredMock.mockReturnValue(true);
+    createClientMock.mockResolvedValue(
+      createSupabaseMock({
+        fromResults: {
+          subscriptions: {
+            data: makeSubscription({ stripe_customer_id: "cus_existing" }),
+            error: null,
+          },
+        },
+      }),
+    );
+    const createSession = vi.fn().mockResolvedValue({
+      url: "https://checkout.stripe.com/annual",
+    });
+    getStripeMock.mockReturnValue({
+      customers: { create: vi.fn() },
+      checkout: { sessions: { create: createSession } },
+    });
+
+    const response = await POST(
+      new Request("http://localhost/api/checkout", {
+        method: "POST",
+        body: JSON.stringify({ tier: "plus", interval: "year" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        line_items: [{ price: "price_plus_annual", quantity: 1 }],
+      }),
+    );
+  });
+
   it("ignores blank promo codes", async () => {
     isStripeConfiguredMock.mockReturnValue(true);
     createClientMock.mockResolvedValue(
