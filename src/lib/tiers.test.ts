@@ -103,6 +103,15 @@ describe("tierFromStripePriceId", () => {
     expect(stripePriceIdForTier("pro")).toBe("price_pro_test");
   });
 
+  it("maps annual price IDs to the same tier", () => {
+    vi.stubEnv("STRIPE_PRICE_PLUS_ANNUAL", "price_plus_year");
+    vi.stubEnv("STRIPE_PRICE_PRO_ANNUAL", "price_pro_year");
+    expect(tierFromStripePriceId("price_plus_year")).toBe("plus");
+    expect(tierFromStripePriceId("price_pro_year")).toBe("pro");
+    expect(stripePriceIdForTier("plus", "year")).toBe("price_plus_year");
+    expect(stripePriceIdForTier("pro", "year")).toBe("price_pro_year");
+  });
+
   it("returns free for unknown price IDs", () => {
     expect(tierFromStripePriceId("price_unknown")).toBe("free");
   });

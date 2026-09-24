@@ -22,7 +22,7 @@ import {
   invoiceHasPromo,
   type InvoiceSnapshot,
 } from "@/lib/promo";
-import { TIER_LIMITS, isPaidTier, type Tier } from "@/lib/tiers";
+import { TIER_LIMITS, isPaidTier, parseBillingInterval, type Tier } from "@/lib/tiers";
 import { AlertCircle, CreditCard, Loader2 } from "lucide-react";
 
 interface DashboardData {
@@ -184,6 +184,13 @@ export function DashboardClient() {
   if (!data) return null;
 
   const tierDetails = TIER_LIMITS[data.tier];
+  const billingInterval = parseBillingInterval(data.subscription?.billing_interval);
+  const planPriceLabel =
+    billingInterval === "year" && tierDetails.priceAnnual != null
+      ? `$${tierDetails.priceAnnual}/year`
+      : tierDetails.priceMonthly != null
+        ? `$${tierDetails.priceMonthly}/mo`
+        : null;
   const usagePercent = Math.min(100, (data.usage / data.limit) * 100);
   const inDunningGrace = isWithinDunningGrace(data.subscription);
   const graceEndsLabel = data.subscription?.grace_period_ends_at
@@ -253,20 +260,14 @@ export function DashboardClient() {
           </CardTitle>
           <CardDescription data-testid="dashboard-plan">
             You are on the {tierDetails.label} plan
-            {tierDetails.priceMonthly != null ? ` ($${tierDetails.priceMonthly}/mo)` : ""}
+            {planPriceLabel ? ` (${planPriceLabel})` : ""}
           </CardDescription>
-          {data.lastInvoice &&
-            invoiceHasPromo(data.lastInvoice) &&
-            tierDetails.priceMonthly != null && (
-              <p
-                data-testid="dashboard-invoice"
-                className="text-sm text-muted-foreground"
-              >
-                Your latest invoice was{" "}
-                {formatUsdFromCents(data.lastInvoice.totalCents)} after a promo.{" "}
-                {tierDetails.label} stays ${tierDetails.priceMonthly}/mo after that.
-              </p>
-            )}
+          {data.lastInvoice && invoiceHasPromo(data.lastInvoice) && planPriceLabel && (
+            <p data-testid="dashboard-invoice" className="text-sm text-muted-foreground">
+              Your latest invoice was {formatUsdFromCents(data.lastInvoice.totalCents)} after
+              a promo. {tierDetails.label} stays {planPriceLabel} after that.
+            </p>
+          )}
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
@@ -279,14 +280,23 @@ export function DashboardClient() {
             <Progress value={usagePercent} aria-label="Monthly usage" />
             <p className="mt-2 text-sm text-muted-foreground">
               {data.remaining.toLocaleString()} requests remaining this{" "}
-              {data.subscription?.current_period_start ? "billing period" : "month"}
+              {billingInterval === "year" || !data.subscription?.current_period_start
+                ? "month"
+                : "billing period"}
             </p>
           </div>
 
           {data.subscription?.current_period_end && (
-            <p className="text-sm text-muted-foreground">
-              Billing period ends{" "}
+            <p className="text-sm text-muted-foreground" data-testid="dashboard-renewal">
+              {billingInterval === "year" ? "Renews annually on" : "Billing period ends"}{" "}
               {new Date(data.subscription.current_period_end).toLocaleDateString()}
+            </p>
+          )}
+          {data.subscription?.pending_tier && data.subscription.current_period_end && (
+            <p className="text-sm text-muted-foreground" data-testid="pending-plan-change">
+              Switches to {TIER_LIMITS[data.subscription.pending_tier].label}{" "}
+              {data.subscription.pending_billing_interval === "year" ? "annual" : "monthly"}{" "}
+              on {new Date(data.subscription.current_period_end).toLocaleDateString()}.
             </p>
           )}
 

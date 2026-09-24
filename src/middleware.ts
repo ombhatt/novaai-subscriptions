@@ -52,6 +52,7 @@ export async function middleware(request: NextRequest) {
     const resumePath = checkoutResumePath(
       request.nextUrl.searchParams.get("plan"),
       request.nextUrl.searchParams.get("promo"),
+      request.nextUrl.searchParams.get("interval"),
     );
     const redirectUrl = request.nextUrl.clone();
     if (resumePath) {

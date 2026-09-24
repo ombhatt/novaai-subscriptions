@@ -7,6 +7,8 @@ const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const pricePlus = Deno.env.get("STRIPE_PRICE_PLUS");
 const pricePro = Deno.env.get("STRIPE_PRICE_PRO");
+const pricePlusAnnual = Deno.env.get("STRIPE_PRICE_PLUS_ANNUAL");
+const priceProAnnual = Deno.env.get("STRIPE_PRICE_PRO_ANNUAL");
 
 if (!stripeSecretKey || !webhookSecret || !supabaseUrl || !serviceRoleKey) {
   throw new Error("Missing required environment variables for stripe-webhook.");
@@ -26,9 +28,21 @@ type SubscriptionStatus = "active" | "past_due" | "canceled" | "trialing" | "inc
 
 function tierFromPriceId(priceId: string | undefined): Tier {
   if (!priceId) return "free";
-  if (pricePro && priceId === pricePro) return "pro";
-  if (pricePlus && priceId === pricePlus) return "plus";
+  if ((pricePro && priceId === pricePro) || (priceProAnnual && priceId === priceProAnnual)) {
+    return "pro";
+  }
+  if ((pricePlus && priceId === pricePlus) || (pricePlusAnnual && priceId === pricePlusAnnual)) {
+    return "plus";
+  }
   return "free";
+}
+
+function billingIntervalFromPrice(
+  price: { id?: string; recurring?: { interval?: string } } | undefined,
+): "month" | "year" {
+  if (price?.recurring?.interval === "year") return "year";
+  if (price?.id && (price.id === pricePlusAnnual || price.id === priceProAnnual)) return "year";
+  return "month";
 }
 
 function mapStripeStatus(status: Stripe.Subscription.Status): SubscriptionStatus {
@@ -145,8 +159,19 @@ async function upsertSubscription(
   customerId: string,
   subscription: Stripe.Subscription,
 ) {
-  const priceId = subscription.items.data[0]?.price.id;
   const item = subscription.items.data[0];
+  const priceId = item?.price.id;
+  const tier = tierFromPriceId(priceId);
+  const billingInterval = billingIntervalFromPrice(item?.price);
+  const { data: pendingRow } = await supabase
+    .from("subscriptions")
+    .select("pending_tier, pending_billing_interval")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const pendingWaiting =
+    pendingRow?.pending_tier &&
+    (pendingRow.pending_tier !== tier ||
+      pendingRow.pending_billing_interval !== billingInterval);
   const status = mapStripeStatus(subscription.status);
   const gracePeriodEndsAt = nextGracePeriodEndsAt(
     await existingGracePeriodEndsAt(userId),
@@ -157,7 +182,10 @@ async function upsertSubscription(
       user_id: userId,
       stripe_customer_id: customerId,
       stripe_subscription_id: subscription.id,
-      tier: tierFromPriceId(priceId),
+      tier,
+      billing_interval: billingInterval,
+      pending_tier: pendingWaiting ? pendingRow.pending_tier : null,
+      pending_billing_interval: pendingWaiting ? pendingRow.pending_billing_interval : null,
       status,
       current_period_start: item?.current_period_start
         ? new Date(item.current_period_start * 1000).toISOString()
@@ -199,6 +227,9 @@ async function downgradeToFree(
     .from("subscriptions")
     .update({
       tier: "free",
+      billing_interval: "month",
+      pending_tier: null,
+      pending_billing_interval: null,
       status: "active",
       stripe_subscription_id: null,
       cancel_at_period_end: false,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { EnterpriseInquiryForm } from "@/components/enterprise-inquiry-form";
 import { PricingCards } from "@/components/pricing-cards";
@@ -14,15 +14,29 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { PromoDiscount } from "@/lib/promo";
-import { isCheckoutTier, isPaidTier, type Tier } from "@/lib/tiers";
+import {
+  isCheckoutTier,
+  isPaidTier,
+  parseBillingInterval,
+  type BillingInterval,
+  type Tier,
+} from "@/lib/tiers";
 
 export const PROMO_CODE_HINT =
   "Optional. We'll apply a valid code automatically at checkout. First-invoice discounts show on the cards; the monthly rate stays the same.";
+
+export const PROMO_CODE_HINT_ANNUAL =
+  "Optional. We'll apply a valid code automatically at checkout. First-invoice discounts show on the cards; the yearly rate stays the same.";
 
 export function PricingPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [currentTier, setCurrentTier] = useState<Tier>("free");
+  const [currentInterval, setCurrentInterval] = useState<BillingInterval>("month");
+  const [interval, setInterval] = useState<BillingInterval>(() =>
+    parseBillingInterval(searchParams.get("interval")),
+  );
+  const intervalTouched = useRef(searchParams.get("interval") === "year");
   const [loadingTier, setLoadingTier] = useState<Tier | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [promoCode, setPromoCode] = useState(() => searchParams.get("promo") ?? "");
@@ -41,6 +55,11 @@ export function PricingPageClient() {
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data?.tier) setCurrentTier(data.tier);
+        const billingInterval = parseBillingInterval(data?.subscription?.billing_interval);
+        if (data?.subscription?.billing_interval) {
+          setCurrentInterval(billingInterval);
+          if (!intervalTouched.current) setInterval(billingInterval);
+        }
       })
       .catch(() => undefined);
   }, []);
@@ -132,6 +151,7 @@ export function PricingPageClient() {
 
     if (!me.user) {
       const params = new URLSearchParams({ plan: tier });
+      if (interval === "year") params.set("interval", "year");
       if (trimmedPromo) {
         params.set("promo", trimmedPromo);
       }
@@ -140,7 +160,9 @@ export function PricingPageClient() {
     }
 
     const switchingPaidPlan =
-      isPaidTier(currentTier) && isCheckoutTier(tier) && tier !== currentTier;
+      isPaidTier(currentTier) &&
+      isCheckoutTier(tier) &&
+      (tier !== currentTier || interval !== currentInterval);
 
     try {
       const response = await fetch(
@@ -150,9 +172,10 @@ export function PricingPageClient() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(
             switchingPaidPlan
-              ? { tier }
+              ? { tier, interval }
               : {
                   tier,
+                  interval,
                   ...(trimmedPromo ? { promoCode: trimmedPromo } : {}),
                 },
           ),
@@ -210,11 +233,45 @@ export function PricingPageClient() {
           }
         />
         <p id="promo-code-hint" className="mt-1 text-xs text-muted-foreground">
-          {PROMO_CODE_HINT}
+          {interval === "year" ? PROMO_CODE_HINT_ANNUAL : PROMO_CODE_HINT}
         </p>
+      </div>
+      <div
+        role="group"
+        aria-label="Billing interval"
+        className="mx-auto mb-8 flex w-fit gap-2"
+      >
+        <button
+          type="button"
+          className={`rounded-md border px-4 py-2 text-sm ${
+            interval === "month" ? "bg-primary text-primary-foreground" : ""
+          }`}
+          aria-pressed={interval === "month"}
+          onClick={() => {
+            intervalTouched.current = true;
+            setInterval("month");
+          }}
+        >
+          Monthly
+        </button>
+        <button
+          type="button"
+          className={`rounded-md border px-4 py-2 text-sm ${
+            interval === "year" ? "bg-primary text-primary-foreground" : ""
+          }`}
+          aria-pressed={interval === "year"}
+          onClick={() => {
+            intervalTouched.current = true;
+            setInterval("year");
+          }}
+        >
+          Annual
+        </button>
       </div>
       <PricingCards
         currentTier={currentTier}
+        billingInterval={currentInterval}
+        selectedInterval={interval}
         onSelectTier={handleSelectTier}
         loadingTier={loadingTier}
         promoDiscount={visiblePromoDiscount}

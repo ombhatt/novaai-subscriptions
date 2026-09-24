@@ -132,4 +132,40 @@ describe("PricingCards", () => {
     render(<PricingCards currentTier="free" loadingTier="plus" />);
     expect(screen.getByRole("button", { name: "Redirecting…" })).toBeDisabled();
   });
+
+  it("shows the yearly charge and monthly equivalent when annual is selected", () => {
+    render(<PricingCards selectedInterval="year" />);
+
+    expect(screen.getByText("$200")).toBeInTheDocument();
+    expect(screen.getByText("$990")).toBeInTheDocument();
+    expect(screen.getByText("about $16.67/mo")).toBeInTheDocument();
+    expect(screen.getByText("about $82.50/mo")).toBeInTheDocument();
+    expect(screen.getByText("$0")).toBeInTheDocument();
+  });
+
+  it("labels a same-tier interval change without calling it an upgrade", () => {
+    render(
+      <PricingCards currentTier="plus" billingInterval="month" selectedInterval="year" />,
+    );
+
+    expect(screen.getByRole("button", { name: "Switch to annual" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Current plan" })).not.toBeInTheDocument();
+  });
+
+  it("describes a once promo against the yearly price", () => {
+    render(
+      <PricingCards
+        selectedInterval="year"
+        promoDiscount={{
+          percentOff: 20,
+          amountOffCents: null,
+          duration: "once",
+          durationInMonths: null,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("first invoice, then $200/year")).toBeInTheDocument();
+    expect(screen.getByText("$160")).toBeInTheDocument();
+  });
 });

@@ -44,7 +44,7 @@ npm install
 node scripts/stripe-setup.mjs
 ```
 
-The script reads `.env.local`. If `STRIPE_PRICE_PLUS` / `STRIPE_PRICE_PRO` are already set, it leaves those prices alone and only creates the promo code. On a first run it prints new price IDs to copy into `.env.local`.
+The script reads `.env.local`. If `STRIPE_PRICE_PLUS` / `STRIPE_PRICE_PRO` are already set, it leaves those monthly prices alone and creates the matching annual prices when `STRIPE_PRICE_PLUS_ANNUAL` / `STRIPE_PRICE_PRO_ANNUAL` are missing. It also creates the promo code when needed. On a first run it prints new price IDs to copy into `.env.local`.
 
 Create more coupons and promotion codes in Stripe Dashboard → Product catalog → Coupons. Customers enter the customer-facing code on `/pricing` (or open `/pricing?promo=WELCOME20`). Invalid codes stay on the pricing page; Stripe Checkout shows the discounted total.
 
@@ -69,9 +69,15 @@ cp .env.example .env.local
 ### 5. Deploy the Edge Function (production webhooks)
 
 ```bash
-supabase functions deploy stripe-webhook \
-  --no-verify-jwt \
-  --set-env-vars STRIPE_SECRET_KEY=sk_...,STRIPE_WEBHOOK_SECRET=whsec_...,STRIPE_PRICE_PLUS=price_...,STRIPE_PRICE_PRO=price_...
+supabase secrets set \
+  STRIPE_SECRET_KEY=sk_... \
+  STRIPE_WEBHOOK_SECRET=whsec_... \
+  STRIPE_PRICE_PLUS=price_... \
+  STRIPE_PRICE_PRO=price_... \
+  STRIPE_PRICE_PLUS_ANNUAL=price_... \
+  STRIPE_PRICE_PRO_ANNUAL=price_...
+
+supabase functions deploy stripe-webhook --no-verify-jwt
 ```
 
 Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are auto-injected by Supabase when deployed.

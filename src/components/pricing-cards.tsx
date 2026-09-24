@@ -10,7 +10,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { TIER_LIMITS, compareTiers, isPaidTier, type Tier } from "@/lib/tiers";
+import {
+  TIER_LIMITS,
+  compareTiers,
+  isPaidTier,
+  parseBillingInterval,
+  type BillingInterval,
+  type Tier,
+} from "@/lib/tiers";
 import {
   discountedPriceCents,
   formatUsdFromCents,
@@ -20,6 +27,8 @@ import { Check } from "lucide-react";
 
 interface PricingCardsProps {
   currentTier?: Tier;
+  billingInterval?: BillingInterval;
+  selectedInterval?: BillingInterval;
   onSelectTier?: (tier: Tier) => void;
   loadingTier?: Tier | null;
   promoDiscount?: PromoDiscount | null;
@@ -27,42 +36,60 @@ interface PricingCardsProps {
 
 const tierOrder: Tier[] = ["free", "plus", "pro", "enterprise"];
 
+function recurringLabel(amount: number, interval: BillingInterval): string {
+  return interval === "year" ? `$${amount}/year` : `$${amount}/mo`;
+}
+
 function TierPrice({
   priceMonthly,
+  priceAnnual,
+  interval,
   promoDiscount,
 }: {
   priceMonthly: number | null;
+  priceAnnual: number | null;
+  interval: BillingInterval;
   promoDiscount?: PromoDiscount | null;
 }) {
   if (priceMonthly == null) {
     return <span className="text-4xl font-bold tracking-tight">Custom</span>;
   }
 
-  if (priceMonthly > 0 && promoDiscount) {
-    const discountedCents = discountedPriceCents(priceMonthly * 100, promoDiscount);
-    if (discountedCents !== priceMonthly * 100) {
+  const annual = interval === "year" && priceAnnual != null;
+  const listPrice = annual ? priceAnnual : priceMonthly;
+  const listInterval: BillingInterval = annual ? "year" : "month";
+
+  if (listPrice > 0 && promoDiscount) {
+    const discountedCents = discountedPriceCents(listPrice * 100, promoDiscount);
+    if (discountedCents !== listPrice * 100) {
+      const later = recurringLabel(listPrice, listInterval);
       return (
         <>
           <div className="flex items-baseline gap-2">
             <span className="text-2xl font-semibold text-muted-foreground line-through">
-              ${priceMonthly}
+              ${listPrice}
             </span>
             <span className="text-4xl font-bold tracking-tight">
               {formatUsdFromCents(discountedCents)}
             </span>
           </div>
           {promoDiscount.duration === "once" ? (
-            <p className="text-sm text-muted-foreground">
-              first invoice, then ${priceMonthly}/mo
-            </p>
+            <p className="text-sm text-muted-foreground">first invoice, then {later}</p>
           ) : promoDiscount.duration === "repeating" ? (
             <p className="text-sm text-muted-foreground">
               {promoDiscount.durationInMonths
-                ? `for ${promoDiscount.durationInMonths} months, then $${priceMonthly}/mo`
-                : `limited time, then $${priceMonthly}/mo`}
+                ? `for ${promoDiscount.durationInMonths} months, then ${later}`
+                : `limited time, then ${later}`}
             </p>
           ) : (
-            <span className="text-muted-foreground">/month</span>
+            <span className="text-muted-foreground">
+              {listInterval === "year" ? "/year" : "/month"}
+            </span>
+          )}
+          {annual && (
+            <p className="text-sm text-muted-foreground">
+              about {formatUsdFromCents(Math.round((priceAnnual * 100) / 12))}/mo
+            </p>
           )}
         </>
       );
@@ -71,26 +98,52 @@ function TierPrice({
 
   return (
     <>
-      <span className="text-4xl font-bold tracking-tight">${priceMonthly}</span>
-      <span className="text-muted-foreground">/month</span>
+      <span className="text-4xl font-bold tracking-tight">${listPrice}</span>
+      <span className="text-muted-foreground">
+        {listInterval === "year" ? "/year" : "/month"}
+      </span>
+      {annual && (
+        <p className="text-sm text-muted-foreground">
+          about {formatUsdFromCents(Math.round((priceAnnual * 100) / 12))}/mo
+        </p>
+      )}
     </>
   );
 }
 
 export function PricingCards({
   currentTier = "free",
+  billingInterval = "month",
+  selectedInterval = "month",
   onSelectTier,
   loadingTier = null,
   promoDiscount = null,
 }: PricingCardsProps) {
+  const currentInterval = parseBillingInterval(billingInterval);
+  const interval = parseBillingInterval(selectedInterval);
+
   return (
     <div className="grid gap-6 pt-3 md:grid-cols-2 xl:grid-cols-4">
       {tierOrder.map((tier) => {
         const details = TIER_LIMITS[tier];
-        const isCurrent = currentTier === tier;
+        const intervalApplies = tier === "plus" || tier === "pro";
+        const isCurrent = intervalApplies
+          ? currentTier === tier && currentInterval === interval
+          : currentTier === tier;
+        const sameTierDifferentInterval =
+          intervalApplies && currentTier === tier && currentInterval !== interval;
         const isDowngrade = compareTiers(tier, currentTier) < 0;
         const isPopular = tier === "plus";
         const isEnterprise = tier === "enterprise";
+        const actionLabel = isCurrent
+          ? "Current plan"
+          : sameTierDifferentInterval
+            ? interval === "year"
+              ? "Switch to annual"
+              : "Switch to monthly"
+            : isDowngrade
+              ? `Downgrade to ${details.label}`
+              : `Upgrade to ${details.label}`;
 
         return (
           <div key={tier} className="relative">
@@ -111,6 +164,8 @@ export function PricingCards({
                 <div className="pt-2">
                   <TierPrice
                     priceMonthly={details.priceMonthly}
+                    priceAnnual={details.priceAnnual}
+                    interval={intervalApplies ? interval : "month"}
                     promoDiscount={isPaidTier(currentTier) ? null : promoDiscount}
                   />
                 </div>
@@ -154,17 +209,15 @@ export function PricingCards({
                 ) : (
                   <Button
                     className="w-full"
-                    variant={isDowngrade || !isPopular ? "outline" : "default"}
+                    variant={
+                      isDowngrade || sameTierDifferentInterval || !isPopular
+                        ? "outline"
+                        : "default"
+                    }
                     disabled={isCurrent || loadingTier === tier}
                     onClick={() => onSelectTier?.(tier)}
                   >
-                    {loadingTier === tier
-                      ? "Redirecting…"
-                      : isCurrent
-                        ? "Current plan"
-                        : isDowngrade
-                          ? `Downgrade to ${details.label}`
-                          : `Upgrade to ${details.label}`}
+                    {loadingTier === tier ? "Redirecting…" : actionLabel}
                   </Button>
                 )}
               </CardFooter>

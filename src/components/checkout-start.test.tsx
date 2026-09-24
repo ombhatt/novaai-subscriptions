@@ -46,7 +46,7 @@ describe("CheckoutStart", () => {
       expect(fetch).toHaveBeenCalledWith("/api/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tier: "plus", promoCode: "WELCOME20" }),
+        body: JSON.stringify({ tier: "plus", interval: "month", promoCode: "WELCOME20" }),
       });
     });
     expect(location.href).toBe("https://checkout.stripe.com/pay");
