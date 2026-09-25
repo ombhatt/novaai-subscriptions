@@ -365,6 +365,59 @@ describe("PricingPageClient", () => {
     ).toBe(false);
   });
 
+  it("lets a customer cancel a pending change by keeping the current plan", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.spyOn(global, "fetch").mockImplementation((input) => {
+      const url = String(input);
+      if (url.includes("/api/subscription") && !url.includes("/api/subscription/change")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              tier: "plus",
+              subscription: {
+                billing_interval: "year",
+                pending_tier: "plus",
+                pending_billing_interval: "month",
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      if (url.includes("/api/me")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ user: { id: "user-1" } }), {
+            status: 200,
+          }),
+        );
+      }
+      if (url.includes("/api/subscription/change")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ url: "http://localhost/dashboard" }), {
+            status: 200,
+          }),
+        );
+      }
+      return Promise.reject(new Error(`unexpected fetch: ${url}`));
+    });
+
+    const location = { href: "http://localhost/pricing" };
+    vi.stubGlobal("location", location);
+
+    render(<PricingPageClient />);
+    await user.click(await screen.findByRole("button", { name: "Keep current plan" }));
+
+    await waitFor(() => {
+      expect(location.href).toBe("http://localhost/dashboard");
+    });
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) =>
+          String(url).includes("/api/subscription/change") && init?.method === "POST",
+      ),
+    ).toBe(true);
+  });
+
   it("schedules cancel-at-period-end when a Plus customer chooses Cancel to Free", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.spyOn(global, "fetch").mockImplementation((input) => {

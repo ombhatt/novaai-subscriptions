@@ -2,6 +2,7 @@ import type Stripe from "stripe";
 import { NextResponse } from "next/server";
 import type { Subscription } from "@/lib/entitlements";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { upsertSubscriptionFromStripe } from "@/lib/stripe-webhook-handler";
 import { isPaidTier } from "@/lib/tiers";
@@ -13,7 +14,11 @@ export type CancelAtPeriodEndResult =
 export async function setCancelAtPeriodEnd(
   subscription: Pick<
     Subscription,
-    "user_id" | "tier" | "stripe_customer_id" | "stripe_subscription_id"
+    | "user_id"
+    | "tier"
+    | "stripe_customer_id"
+    | "stripe_subscription_id"
+    | "pending_tier"
   >,
   cancelAtPeriodEnd: boolean,
 ): Promise<CancelAtPeriodEndResult> {
@@ -30,6 +35,17 @@ export async function setCancelAtPeriodEnd(
   }
 
   const stripe = getStripe();
+  if (cancelAtPeriodEnd && subscription.pending_tier) {
+    const current = (await stripe.subscriptions.retrieve(
+      subscription.stripe_subscription_id,
+    )) as Stripe.Subscription;
+    const scheduleId =
+      typeof current.schedule === "string" ? current.schedule : current.schedule?.id;
+    if (scheduleId) {
+      await stripe.subscriptionSchedules.release(scheduleId);
+    }
+  }
+
   const updated = (await stripe.subscriptions.update(
     subscription.stripe_subscription_id,
     { cancel_at_period_end: cancelAtPeriodEnd },
@@ -40,6 +56,26 @@ export async function setCancelAtPeriodEnd(
     subscription.stripe_customer_id,
     updated,
   );
+
+  if (cancelAtPeriodEnd && subscription.pending_tier) {
+    const admin = createAdminClient();
+    const { error } = await admin
+      .from("subscriptions")
+      .update({
+        pending_tier: null,
+        pending_billing_interval: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", subscription.user_id);
+
+    if (error) {
+      return {
+        ok: false,
+        status: 500,
+        error: "Unable to clear the scheduled plan change.",
+      };
+    }
+  }
 
   return { ok: true };
 }

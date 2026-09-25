@@ -84,6 +84,25 @@ describe("PricingCards", () => {
     expect(screen.getByRole("button", { name: "Current plan" })).toBeDisabled();
   });
 
+  it("allows a customer to keep the current plan when another change is pending", async () => {
+    const user = userEvent.setup();
+    const onSelectTier = vi.fn();
+    render(
+      <PricingCards
+        currentTier="plus"
+        billingInterval="year"
+        selectedInterval="year"
+        hasPendingChange
+        onSelectTier={onSelectTier}
+      />,
+    );
+
+    const keepButton = screen.getByRole("button", { name: "Keep current plan" });
+    expect(keepButton).toBeEnabled();
+    await user.click(keepButton);
+    expect(onSelectTier).toHaveBeenCalledWith("plus");
+  });
+
   it("labels Plus as a downgrade when the current plan is Pro", () => {
     render(<PricingCards currentTier="pro" />);
 

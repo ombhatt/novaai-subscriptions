@@ -33,6 +33,7 @@ export function PricingPageClient() {
   const searchParams = useSearchParams();
   const [currentTier, setCurrentTier] = useState<Tier>("free");
   const [currentInterval, setCurrentInterval] = useState<BillingInterval>("month");
+  const [hasPendingChange, setHasPendingChange] = useState(false);
   const [interval, setInterval] = useState<BillingInterval>(() =>
     parseBillingInterval(searchParams.get("interval")),
   );
@@ -56,6 +57,7 @@ export function PricingPageClient() {
       .then((data) => {
         if (data?.tier) setCurrentTier(data.tier);
         const billingInterval = parseBillingInterval(data?.subscription?.billing_interval);
+        setHasPendingChange(Boolean(data?.subscription?.pending_tier));
         if (data?.subscription?.billing_interval) {
           setCurrentInterval(billingInterval);
           if (!intervalTouched.current) setInterval(billingInterval);
@@ -162,7 +164,7 @@ export function PricingPageClient() {
     const switchingPaidPlan =
       isPaidTier(currentTier) &&
       isCheckoutTier(tier) &&
-      (tier !== currentTier || interval !== currentInterval);
+      (tier !== currentTier || interval !== currentInterval || hasPendingChange);
 
     try {
       const response = await fetch(
@@ -275,6 +277,7 @@ export function PricingPageClient() {
         onSelectTier={handleSelectTier}
         loadingTier={loadingTier}
         promoDiscount={visiblePromoDiscount}
+        hasPendingChange={hasPendingChange}
       />
       <Dialog open={showInquiry} onOpenChange={setShowInquiry}>
         <DialogContent>

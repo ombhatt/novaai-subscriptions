@@ -118,6 +118,7 @@ export async function changePaidSubscriptionTier(
     | "stripe_subscription_id"
     | "billing_interval"
     | "pending_tier"
+    | "pending_billing_interval"
     | "cancel_at_period_end"
   >,
   tier: CheckoutTier,
@@ -138,6 +139,40 @@ export async function changePaidSubscriptionTier(
 
   const currentInterval = parseBillingInterval(subscription.billing_interval);
   if (subscription.tier === tier && currentInterval === interval) {
+    if (subscription.pending_tier) {
+      const stripe = getStripe();
+      const current = (await stripe.subscriptions.retrieve(
+        subscription.stripe_subscription_id,
+      )) as Stripe.Subscription;
+      const scheduleId =
+        typeof current.schedule === "string"
+          ? current.schedule
+          : current.schedule?.id;
+      if (scheduleId) {
+        await stripe.subscriptionSchedules.release(scheduleId);
+      }
+
+      const admin = createAdminClient();
+      const { error } = await admin
+        .from("subscriptions")
+        .update({
+          pending_tier: null,
+          pending_billing_interval: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", subscription.user_id);
+
+      if (error) {
+        return {
+          ok: false,
+          status: 500,
+          error: "Unable to clear the scheduled plan change.",
+        };
+      }
+
+      return { ok: true };
+    }
+
     return {
       ok: false,
       status: 400,
@@ -248,10 +283,35 @@ export async function changePaidSubscriptionTier(
     proration_behavior: isUpgrade ? "always_invoice" : "create_prorations",
     ...(isUpgrade ? { payment_behavior: "error_if_incomplete" } : {}),
   };
-  const updated = (await stripe.subscriptions.update(
-    subscription.stripe_subscription_id,
-    updateParams,
-  )) as Stripe.Subscription;
+  let updated: Stripe.Subscription;
+  try {
+    updated = (await stripe.subscriptions.update(
+      subscription.stripe_subscription_id,
+      updateParams,
+    )) as Stripe.Subscription;
+  } catch (error) {
+    const pendingTier = subscription.pending_tier;
+    const pendingInterval = subscription.pending_billing_interval;
+    if (
+      existingScheduleId &&
+      (pendingTier === "plus" || pendingTier === "pro") &&
+      pendingInterval
+    ) {
+      const pendingPriceId = stripePriceIdForTier(
+        pendingTier,
+        pendingInterval,
+      );
+      if (pendingPriceId) {
+        await schedulePriceAtPeriodEnd(
+          stripe,
+          { ...current, schedule: null },
+          pendingPriceId,
+          pendingInterval,
+        );
+      }
+    }
+    throw error;
+  }
 
   await upsertSubscriptionFromStripe(
     subscription.user_id,
