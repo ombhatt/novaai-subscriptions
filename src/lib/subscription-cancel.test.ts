@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { makeSubscription } from "@/test/mocks/supabase";
+import { createSupabaseMock, makeSubscription } from "@/test/mocks/supabase";
 import type { Subscription } from "@/lib/entitlements";
 
-const { getStripeMock, upsertMock } = vi.hoisted(() => ({
+const { getStripeMock, upsertMock, createAdminClientMock } = vi.hoisted(() => ({
   getStripeMock: vi.fn(),
   upsertMock: vi.fn(),
+  createAdminClientMock: vi.fn(),
 }));
 
 vi.mock("@/lib/stripe", () => ({
@@ -13,6 +14,10 @@ vi.mock("@/lib/stripe", () => ({
 
 vi.mock("@/lib/stripe-webhook-handler", () => ({
   upsertSubscriptionFromStripe: upsertMock,
+}));
+
+vi.mock("@/lib/supabase/admin", () => ({
+  createAdminClient: createAdminClientMock,
 }));
 
 import { setCancelAtPeriodEnd } from "@/lib/subscription-cancel";
@@ -81,5 +86,46 @@ describe("setCancelAtPeriodEnd", () => {
     expect(update).toHaveBeenCalledWith("sub_stripe", {
       cancel_at_period_end: false,
     });
+  });
+
+  it("releases a pending plan change before canceling to Free", async () => {
+    const retrieve = vi.fn().mockResolvedValue({
+      id: "sub_stripe",
+      schedule: "sched_pending",
+    });
+    const release = vi.fn().mockResolvedValue({ id: "sched_pending" });
+    const update = vi.fn().mockResolvedValue({
+      id: "sub_stripe",
+      cancel_at_period_end: true,
+    });
+    getStripeMock.mockReturnValue({
+      subscriptions: { retrieve, update },
+      subscriptionSchedules: { release },
+    });
+    const admin = createSupabaseMock();
+    createAdminClientMock.mockReturnValue(admin);
+
+    const subscription = makeSubscription({
+      tier: "plus",
+      pending_tier: "plus",
+      pending_billing_interval: "month",
+      stripe_customer_id: "cus_1",
+      stripe_subscription_id: "sub_stripe",
+    }) as Subscription;
+
+    await expect(setCancelAtPeriodEnd(subscription, true)).resolves.toEqual({
+      ok: true,
+    });
+
+    expect(release).toHaveBeenCalledWith("sched_pending");
+    expect(update).toHaveBeenCalledWith("sub_stripe", {
+      cancel_at_period_end: true,
+    });
+    expect(admin.builders.subscriptions.builder.lastUpdate).toEqual(
+      expect.objectContaining({
+        pending_tier: null,
+        pending_billing_interval: null,
+      }),
+    );
   });
 });
