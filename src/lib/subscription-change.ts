@@ -25,6 +25,7 @@ async function schedulePriceAtPeriodEnd(
   stripe: Stripe,
   subscription: Stripe.Subscription,
   nextPriceId: string,
+  nextInterval: BillingInterval,
 ): Promise<boolean> {
   const item = subscription.items.data[0];
   const currentPriceId = item?.price.id;
@@ -40,19 +41,57 @@ async function schedulePriceAtPeriodEnd(
     : await stripe.subscriptionSchedules.create({
         from_subscription: subscription.id,
       });
-  const startDate = schedule.phases[0]?.start_date;
+  const startDate =
+    schedule.current_phase?.start_date ??
+    schedule.phases.find((phase) => phase.end_date === periodEnd)?.start_date ??
+    schedule.phases[0]?.start_date;
   if (!startDate) return false;
+
+  const currentPhase = schedule.phases.find(
+    (phase) => phase.start_date === startDate,
+  );
+  const discounts = currentPhase?.discounts
+    ?.map(
+      (
+        entry,
+      ): Stripe.SubscriptionScheduleUpdateParams.Phase.Discount | null => {
+        const discount =
+          typeof entry.discount === "string" ? entry.discount : entry.discount?.id;
+        if (discount) return { discount };
+
+        const promotionCode =
+          typeof entry.promotion_code === "string"
+            ? entry.promotion_code
+            : entry.promotion_code?.id;
+        if (promotionCode) return { promotion_code: promotionCode };
+
+        const coupon =
+          typeof entry.coupon === "string" ? entry.coupon : entry.coupon?.id;
+        return coupon ? { coupon } : null;
+      },
+    )
+    .filter(
+      (
+        entry,
+      ): entry is Stripe.SubscriptionScheduleUpdateParams.Phase.Discount =>
+        entry !== null,
+    );
+  const preservedPhaseSettings = discounts ? { discounts } : {};
+  const quantity = item.quantity ?? 1;
 
   await stripe.subscriptionSchedules.update(schedule.id, {
     end_behavior: "release",
     phases: [
       {
-        items: [{ price: currentPriceId, quantity: 1 }],
+        items: [{ price: currentPriceId, quantity }],
         start_date: startDate,
         end_date: periodEnd,
+        ...preservedPhaseSettings,
       },
       {
-        items: [{ price: nextPriceId, quantity: 1 }],
+        items: [{ price: nextPriceId, quantity }],
+        duration: { interval: nextInterval },
+        ...preservedPhaseSettings,
       },
     ],
   });
@@ -164,6 +203,7 @@ export async function changePaidSubscriptionTier(
       stripe,
       current,
       priceId,
+      interval,
     );
     if (!scheduled) {
       return {
