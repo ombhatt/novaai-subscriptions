@@ -290,7 +290,13 @@ async function processStripeWebhookEvent(event: Stripe.Event): Promise<void> {
       if (subscription.status === "canceled") {
         await downgradeToFree(owner.userId, customerId, subscription.id);
       } else {
-        await upsertSubscriptionFromStripe(owner.userId, customerId, subscription);
+        if (owner.subscriptionId !== subscription.id) break;
+        await upsertSubscriptionFromStripe(
+          owner.userId,
+          customerId,
+          subscription,
+          subscription.id,
+        );
       }
       break;
     }

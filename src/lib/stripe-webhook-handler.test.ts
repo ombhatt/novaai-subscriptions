@@ -423,11 +423,14 @@ describe("handleStripeWebhookEvent", () => {
     expect(supabase.builders.subscriptions.builder.lastUpdate).toBeUndefined();
   });
 
-  it("re-fetches subscription.updated state before upserting", async () => {
+  it("re-fetches subscription.updated state before syncing", async () => {
     const supabase = createSupabaseMock({
       fromResults: {
         stripe_webhook_events: { data: null, error: null },
-        subscriptions: { data: { user_id: "user-1" }, error: null },
+        subscriptions: {
+          data: { user_id: "user-1", stripe_subscription_id: "sub_123" },
+          error: null,
+        },
       },
     });
     createAdminClientMock.mockReturnValue(supabase);
@@ -459,12 +462,47 @@ describe("handleStripeWebhookEvent", () => {
     );
 
     expect(retrieve).toHaveBeenCalledWith("sub_123");
-    expect(supabase.builders.subscriptions.builder.lastUpsert).toEqual(
+    expect(supabase.builders.subscriptions.builder.lastUpdate).toEqual(
       expect.objectContaining({
         tier: "plus",
         cancel_at_period_end: false,
       }),
     );
+    expect(supabase.builders.subscriptions.builder.eq).toHaveBeenCalledWith(
+      "stripe_subscription_id",
+      "sub_123",
+    );
+    expect(supabase.builders.subscriptions.builder.lastUpsert).toBeUndefined();
+  });
+
+  it("ignores a delayed update for an older active subscription", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        stripe_webhook_events: { data: null, error: null },
+        subscriptions: {
+          data: { user_id: "user-1", stripe_subscription_id: "sub_new" },
+          error: null,
+        },
+      },
+    });
+    createAdminClientMock.mockReturnValue(supabase);
+    const retrieve = vi
+      .fn()
+      .mockResolvedValue(makeStripeSubscription({ id: "sub_old" }));
+    getStripeMock.mockReturnValue({
+      subscriptions: { retrieve },
+    });
+
+    await handleStripeWebhookEvent(
+      makeEvent(
+        "customer.subscription.updated",
+        makeStripeSubscription({ id: "sub_old" }),
+      ),
+    );
+
+    expect(retrieve).toHaveBeenCalledWith("sub_old");
+    expect(supabase.builders.subscriptions.builder.lastUpdate).toBeUndefined();
+    expect(supabase.builders.subscriptions.builder.lastUpsert).toBeUndefined();
   });
 
   it("downgrades when subscription.updated status is canceled", async () => {

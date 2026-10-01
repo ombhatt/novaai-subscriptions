@@ -297,7 +297,13 @@ async function processEvent(event: Stripe.Event) {
       if (subscription.status === "canceled") {
         await downgradeToFree(owner.userId, customerId, subscription.id);
       } else {
-        await upsertSubscription(owner.userId, customerId, subscription);
+        if (owner.subscriptionId !== subscription.id) break;
+        await upsertSubscription(
+          owner.userId,
+          customerId,
+          subscription,
+          subscription.id,
+        );
       }
       break;
     }
