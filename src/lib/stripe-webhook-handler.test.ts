@@ -255,13 +255,19 @@ describe("handleStripeWebhookEvent", () => {
     const supabase = createSupabaseMock({
       fromResults: {
         stripe_webhook_events: { data: null, error: null },
-        subscriptions: { data: { user_id: "user-1" }, error: null },
+        subscriptions: {
+          data: { user_id: "user-1", stripe_subscription_id: "sub_123" },
+          error: null,
+        },
       },
     });
     createAdminClientMock.mockReturnValue(supabase);
 
     await handleStripeWebhookEvent(
-      makeEvent("invoice.payment_failed", { customer: "cus_123" }),
+      makeEvent("invoice.payment_failed", {
+        customer: "cus_123",
+        parent: { subscription_details: { subscription: "sub_123" } },
+      }),
     );
 
     expect(supabase.builders.subscriptions.builder.lastUpdate).toEqual(
@@ -278,7 +284,11 @@ describe("handleStripeWebhookEvent", () => {
       fromResults: {
         stripe_webhook_events: { data: null, error: null },
         subscriptions: {
-          data: { user_id: "user-1", grace_period_ends_at: existing },
+          data: {
+            user_id: "user-1",
+            stripe_subscription_id: "sub_123",
+            grace_period_ends_at: existing,
+          },
           error: null,
         },
       },
@@ -286,7 +296,14 @@ describe("handleStripeWebhookEvent", () => {
     createAdminClientMock.mockReturnValue(supabase);
 
     await handleStripeWebhookEvent(
-      makeEvent("invoice.payment_failed", { customer: "cus_123" }, "evt_retry"),
+      makeEvent(
+        "invoice.payment_failed",
+        {
+          customer: "cus_123",
+          parent: { subscription_details: { subscription: "sub_123" } },
+        },
+        "evt_retry",
+      ),
     );
 
     expect(supabase.builders.subscriptions.builder.lastUpdate).toEqual(
@@ -301,7 +318,10 @@ describe("handleStripeWebhookEvent", () => {
     const supabase = createSupabaseMock({
       fromResults: {
         stripe_webhook_events: { data: null, error: null },
-        subscriptions: { data: { user_id: "user-1" }, error: null },
+        subscriptions: {
+          data: { user_id: "user-1", stripe_subscription_id: "sub_123" },
+          error: null,
+        },
       },
     });
     createAdminClientMock.mockReturnValue(supabase);
@@ -310,16 +330,18 @@ describe("handleStripeWebhookEvent", () => {
       makeEvent("invoice.paid", { customer: "cus_123" }),
     );
 
-    expect(supabase.from).toHaveBeenCalledWith("subscriptions");
     expect(getStripeMock).not.toHaveBeenCalled();
-    expect(supabase.builders.subscriptions.builder.lastUpdate).toBeUndefined();
+    expect(supabase.from).not.toHaveBeenCalledWith("subscriptions");
   });
 
   it("refreshes billing period on invoice.paid when a subscription is present", async () => {
     const supabase = createSupabaseMock({
       fromResults: {
         stripe_webhook_events: { data: null, error: null },
-        subscriptions: { data: { user_id: "user-1" }, error: null },
+        subscriptions: {
+          data: { user_id: "user-1", stripe_subscription_id: "sub_123" },
+          error: null,
+        },
       },
     });
     createAdminClientMock.mockReturnValue(supabase);
@@ -338,6 +360,67 @@ describe("handleStripeWebhookEvent", () => {
 
     expect(retrieve).toHaveBeenCalledWith("sub_123");
     expect(supabase.from).toHaveBeenCalledWith("subscriptions");
+    expect(supabase.builders.subscriptions.builder.lastUpdate).toEqual(
+      expect.objectContaining({
+        stripe_subscription_id: "sub_123",
+        tier: "plus",
+        status: "active",
+      }),
+    );
+    expect(supabase.builders.subscriptions.builder.eq).toHaveBeenCalledWith(
+      "stripe_subscription_id",
+      "sub_123",
+    );
+    expect(supabase.builders.subscriptions.builder.lastUpsert).toBeUndefined();
+  });
+
+  it("ignores a delayed paid invoice for an older subscription", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        stripe_webhook_events: { data: null, error: null },
+        subscriptions: {
+          data: { user_id: "user-1", stripe_subscription_id: "sub_new" },
+          error: null,
+        },
+      },
+    });
+    createAdminClientMock.mockReturnValue(supabase);
+    const retrieve = vi.fn();
+    getStripeMock.mockReturnValue({
+      subscriptions: { retrieve },
+    });
+
+    await handleStripeWebhookEvent(
+      makeEvent("invoice.paid", {
+        customer: "cus_123",
+        parent: { subscription_details: { subscription: "sub_old" } },
+      }),
+    );
+
+    expect(retrieve).not.toHaveBeenCalled();
+    expect(supabase.builders.subscriptions.builder.lastUpsert).toBeUndefined();
+  });
+
+  it("ignores a delayed payment failure for an older subscription", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        stripe_webhook_events: { data: null, error: null },
+        subscriptions: {
+          data: { user_id: "user-1", stripe_subscription_id: "sub_new" },
+          error: null,
+        },
+      },
+    });
+    createAdminClientMock.mockReturnValue(supabase);
+
+    await handleStripeWebhookEvent(
+      makeEvent("invoice.payment_failed", {
+        customer: "cus_123",
+        parent: { subscription_details: { subscription: "sub_old" } },
+      }),
+    );
+
+    expect(supabase.builders.subscriptions.builder.lastUpdate).toBeUndefined();
   });
 
   it("re-fetches subscription.updated state before upserting", async () => {

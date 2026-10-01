@@ -107,12 +107,14 @@ async function releaseWebhookEvent(eventId: string): Promise<void> {
   }
 }
 
-async function findUserIdByCustomerId(customerId: string): Promise<string | null> {
+async function findSubscriptionOwnerByCustomerId(
+  customerId: string,
+): Promise<{ userId: string; subscriptionId: string | null } | null> {
   const supabase = createAdminClient();
 
   const { data, error } = await supabase
     .from("subscriptions")
-    .select("user_id")
+    .select("user_id, stripe_subscription_id")
     .eq("stripe_customer_id", customerId)
     .maybeSingle();
 
@@ -120,7 +122,12 @@ async function findUserIdByCustomerId(customerId: string): Promise<string | null
     throw new Error(`Failed to look up customer: ${error.message}`);
   }
 
-  return data?.user_id ?? null;
+  return data
+    ? {
+        userId: data.user_id,
+        subscriptionId: data.stripe_subscription_id,
+      }
+    : null;
 }
 
 async function existingGracePeriodEndsAt(userId: string): Promise<string | null> {
@@ -142,6 +149,7 @@ export async function upsertSubscriptionFromStripe(
   userId: string,
   customerId: string,
   subscription: Stripe.Subscription,
+  expectedSubscriptionId?: string,
 ) {
   const supabase = createAdminClient();
   const price = subscription.items.data[0]?.price;
@@ -156,27 +164,31 @@ export async function upsertSubscriptionFromStripe(
     status,
   );
 
-  const { error } = await supabase.from("subscriptions").upsert(
-    {
-      user_id: userId,
-      stripe_customer_id: customerId,
-      stripe_subscription_id: subscription.id,
-      tier,
-      billing_interval: billingInterval,
-      ...pending,
-      status,
-      current_period_start: currentPeriodStart
-        ? new Date(currentPeriodStart * 1000).toISOString()
-        : null,
-      current_period_end: currentPeriodEnd
-        ? new Date(currentPeriodEnd * 1000).toISOString()
-        : null,
-      cancel_at_period_end: subscription.cancel_at_period_end,
-      grace_period_ends_at: gracePeriodEndsAt,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id" },
-  );
+  const values = {
+    user_id: userId,
+    stripe_customer_id: customerId,
+    stripe_subscription_id: subscription.id,
+    tier,
+    billing_interval: billingInterval,
+    ...pending,
+    status,
+    current_period_start: currentPeriodStart
+      ? new Date(currentPeriodStart * 1000).toISOString()
+      : null,
+    current_period_end: currentPeriodEnd
+      ? new Date(currentPeriodEnd * 1000).toISOString()
+      : null,
+    cancel_at_period_end: subscription.cancel_at_period_end,
+    grace_period_ends_at: gracePeriodEndsAt,
+    updated_at: new Date().toISOString(),
+  };
+  const { error } = expectedSubscriptionId
+    ? await supabase
+        .from("subscriptions")
+        .update(values)
+        .eq("user_id", userId)
+        .eq("stripe_subscription_id", expectedSubscriptionId)
+    : await supabase.from("subscriptions").upsert(values, { onConflict: "user_id" });
 
   if (error) {
     throw new Error(`Failed to upsert subscription: ${error.message}`);
@@ -270,15 +282,15 @@ async function processStripeWebhookEvent(event: Stripe.Event): Promise<void> {
           ? subscription.customer
           : subscription.customer.id;
 
-      const userId = await findUserIdByCustomerId(customerId);
-      if (!userId) {
+      const owner = await findSubscriptionOwnerByCustomerId(customerId);
+      if (!owner) {
         throw new Error(`No user found for customer ${customerId}`);
       }
 
       if (subscription.status === "canceled") {
-        await downgradeToFree(userId, customerId, subscription.id);
+        await downgradeToFree(owner.userId, customerId, subscription.id);
       } else {
-        await upsertSubscriptionFromStripe(userId, customerId, subscription);
+        await upsertSubscriptionFromStripe(owner.userId, customerId, subscription);
       }
       break;
     }
@@ -290,12 +302,12 @@ async function processStripeWebhookEvent(event: Stripe.Event): Promise<void> {
           ? subscription.customer
           : subscription.customer.id;
 
-      const userId = await findUserIdByCustomerId(customerId);
-      if (!userId) {
+      const owner = await findSubscriptionOwnerByCustomerId(customerId);
+      if (!owner) {
         throw new Error(`No user found for customer ${customerId}`);
       }
 
-      await downgradeToFree(userId, customerId, subscription.id);
+      await downgradeToFree(owner.userId, customerId, subscription.id);
       break;
     }
 
@@ -306,11 +318,14 @@ async function processStripeWebhookEvent(event: Stripe.Event): Promise<void> {
 
       if (!customerId) break;
 
-      const userId = await findUserIdByCustomerId(customerId);
-      if (!userId) break;
+      const subscriptionId = getInvoiceSubscriptionId(invoice);
+      if (!subscriptionId) break;
+
+      const owner = await findSubscriptionOwnerByCustomerId(customerId);
+      if (!owner || owner.subscriptionId !== subscriptionId) break;
 
       const gracePeriodEndsAt = nextGracePeriodEndsAt(
-        await existingGracePeriodEndsAt(userId),
+        await existingGracePeriodEndsAt(owner.userId),
         "past_due",
       );
 
@@ -322,7 +337,8 @@ async function processStripeWebhookEvent(event: Stripe.Event): Promise<void> {
           grace_period_ends_at: gracePeriodEndsAt,
           updated_at: new Date().toISOString(),
         })
-        .eq("user_id", userId);
+        .eq("user_id", owner.userId)
+        .eq("stripe_subscription_id", subscriptionId);
 
       if (error) {
         throw new Error(`Failed to mark subscription past_due: ${error.message}`);
@@ -337,15 +353,20 @@ async function processStripeWebhookEvent(event: Stripe.Event): Promise<void> {
 
       if (!customerId) break;
 
-      const userId = await findUserIdByCustomerId(customerId);
-      if (!userId) break;
-
       const subscriptionId = getInvoiceSubscriptionId(invoice);
-      if (subscriptionId) {
-        const stripe = await import("@/lib/stripe").then((m) => m.getStripe());
-        const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-        await upsertSubscriptionFromStripe(userId, customerId, subscription);
-      }
+      if (!subscriptionId) break;
+
+      const owner = await findSubscriptionOwnerByCustomerId(customerId);
+      if (!owner || owner.subscriptionId !== subscriptionId) break;
+
+      const stripe = await import("@/lib/stripe").then((m) => m.getStripe());
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+      await upsertSubscriptionFromStripe(
+        owner.userId,
+        customerId,
+        subscription,
+        subscriptionId,
+      );
       break;
     }
 
