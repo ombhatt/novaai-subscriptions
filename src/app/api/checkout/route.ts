@@ -22,6 +22,14 @@ function isStripeInvalidRequestError(
   );
 }
 
+const LIVE_SUBSCRIPTION_STATUSES = new Set<Stripe.Subscription.Status>([
+  "active",
+  "past_due",
+  "paused",
+  "trialing",
+  "unpaid",
+]);
+
 export async function POST(request: Request) {
   if (!isStripeConfigured()) {
     return NextResponse.json(
@@ -77,6 +85,25 @@ export async function POST(request: Request) {
   }
 
   let customerId = subscription?.stripe_customer_id;
+
+  if (customerId) {
+    const stripeSubscriptions = await stripe.subscriptions.list({
+      customer: customerId,
+      status: "all",
+      limit: 100,
+    });
+    const hasLiveSubscription = stripeSubscriptions.data.some((item) =>
+      LIVE_SUBSCRIPTION_STATUSES.has(item.status),
+    );
+
+    if (hasLiveSubscription) {
+      const portalSession = await stripe.billingPortal.sessions.create({
+        customer: customerId,
+        return_url: `${appUrl}/dashboard`,
+      });
+      return NextResponse.json({ url: portalSession.url });
+    }
+  }
 
   if (!customerId) {
     const customer = await stripe.customers.create({

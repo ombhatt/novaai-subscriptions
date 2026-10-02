@@ -6,11 +6,13 @@ const {
   createAdminClientMock,
   getStripeMock,
   isStripeConfiguredMock,
+  listSubscriptionsMock,
 } = vi.hoisted(() => ({
   createClientMock: vi.fn(),
   createAdminClientMock: vi.fn(),
   getStripeMock: vi.fn(),
   isStripeConfiguredMock: vi.fn(),
+  listSubscriptionsMock: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -34,6 +36,7 @@ describe("POST /api/checkout", () => {
     vi.stubEnv("STRIPE_PRICE_PLUS", "price_plus");
     vi.stubEnv("STRIPE_PRICE_PRO", "price_pro");
     vi.stubEnv("NEXT_PUBLIC_APP_URL", "http://localhost:43123");
+    listSubscriptionsMock.mockResolvedValue({ data: [] });
   });
 
   it("returns 503 when Stripe is not configured", async () => {
@@ -114,6 +117,7 @@ describe("POST /api/checkout", () => {
     });
     getStripeMock.mockReturnValue({
       customers: { create: vi.fn() },
+      subscriptions: { list: listSubscriptionsMock },
       checkout: { sessions: { create: createSession } },
     });
 
@@ -136,6 +140,11 @@ describe("POST /api/checkout", () => {
       }),
     );
     expect(createSession.mock.calls[0]?.[0]).not.toHaveProperty("discounts");
+    expect(listSubscriptionsMock).toHaveBeenCalledWith({
+      customer: "cus_existing",
+      status: "all",
+      limit: 100,
+    });
   });
 
   it("sends existing subscribers to the billing portal instead of creating another subscription", async () => {
@@ -182,6 +191,59 @@ describe("POST /api/checkout", () => {
     expect(createCheckout).not.toHaveBeenCalled();
   });
 
+  it("sends Stripe subscribers to the portal while the checkout webhook is delayed", async () => {
+    isStripeConfiguredMock.mockReturnValue(true);
+    createClientMock.mockResolvedValue(
+      createSupabaseMock({
+        fromResults: {
+          subscriptions: {
+            data: makeSubscription({
+              stripe_customer_id: "cus_existing",
+              stripe_subscription_id: null,
+              tier: "free",
+            }),
+            error: null,
+          },
+        },
+      }),
+    );
+    listSubscriptionsMock.mockResolvedValue({
+      data: [{ id: "sub_paid", status: "active" }],
+    });
+
+    const createPortal = vi.fn().mockResolvedValue({
+      url: "https://billing.stripe.com/session/test",
+    });
+    const createCheckout = vi.fn();
+    getStripeMock.mockReturnValue({
+      subscriptions: { list: listSubscriptionsMock },
+      billingPortal: { sessions: { create: createPortal } },
+      checkout: { sessions: { create: createCheckout } },
+    });
+
+    const response = await POST(
+      new Request("http://localhost/api/checkout", {
+        method: "POST",
+        body: JSON.stringify({ tier: "pro" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      url: "https://billing.stripe.com/session/test",
+    });
+    expect(listSubscriptionsMock).toHaveBeenCalledWith({
+      customer: "cus_existing",
+      status: "all",
+      limit: 100,
+    });
+    expect(createPortal).toHaveBeenCalledWith({
+      customer: "cus_existing",
+      return_url: "http://localhost:43123/dashboard",
+    });
+    expect(createCheckout).not.toHaveBeenCalled();
+  });
+
   it("creates a checkout session for plus annual", async () => {
     vi.stubEnv("STRIPE_PRICE_PLUS_ANNUAL", "price_plus_annual");
     isStripeConfiguredMock.mockReturnValue(true);
@@ -200,6 +262,7 @@ describe("POST /api/checkout", () => {
     });
     getStripeMock.mockReturnValue({
       customers: { create: vi.fn() },
+      subscriptions: { list: listSubscriptionsMock },
       checkout: { sessions: { create: createSession } },
     });
 
@@ -237,6 +300,7 @@ describe("POST /api/checkout", () => {
     });
     getStripeMock.mockReturnValue({
       customers: { create: vi.fn() },
+      subscriptions: { list: listSubscriptionsMock },
       promotionCodes: { list: listPromotionCodes },
       checkout: { sessions: { create: createSession } },
     });
@@ -274,6 +338,7 @@ describe("POST /api/checkout", () => {
     });
     getStripeMock.mockReturnValue({
       customers: { create: vi.fn() },
+      subscriptions: { list: listSubscriptionsMock },
       promotionCodes: { list: listPromotionCodes },
       checkout: { sessions: { create: createSession } },
     });
@@ -318,6 +383,7 @@ describe("POST /api/checkout", () => {
     const createSession = vi.fn();
     getStripeMock.mockReturnValue({
       customers: { create: vi.fn() },
+      subscriptions: { list: listSubscriptionsMock },
       promotionCodes: { list: vi.fn().mockResolvedValue({ data: [] }) },
       checkout: { sessions: { create: createSession } },
     });
@@ -354,6 +420,7 @@ describe("POST /api/checkout", () => {
     });
     getStripeMock.mockReturnValue({
       customers: { create: vi.fn() },
+      subscriptions: { list: listSubscriptionsMock },
       promotionCodes: {
         list: vi.fn().mockResolvedValue({ data: [{ id: "promo_restricted" }] }),
       },
