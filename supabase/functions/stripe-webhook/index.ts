@@ -132,15 +132,22 @@ async function releaseEvent(eventId: string): Promise<void> {
   if (error) throw new Error(`Failed to release webhook event: ${error.message}`);
 }
 
-async function findUserId(customerId: string): Promise<string | null> {
+async function findSubscriptionOwner(
+  customerId: string,
+): Promise<{ userId: string; subscriptionId: string | null } | null> {
   const { data, error } = await supabase
     .from("subscriptions")
-    .select("user_id")
+    .select("user_id, stripe_subscription_id")
     .eq("stripe_customer_id", customerId)
     .maybeSingle();
 
   if (error) throw new Error(error.message);
-  return data?.user_id ?? null;
+  return data
+    ? {
+        userId: data.user_id,
+        subscriptionId: data.stripe_subscription_id,
+      }
+    : null;
 }
 
 async function existingGracePeriodEndsAt(userId: string): Promise<string | null> {
@@ -158,6 +165,7 @@ async function upsertSubscription(
   userId: string,
   customerId: string,
   subscription: Stripe.Subscription,
+  expectedSubscriptionId?: string,
 ) {
   const item = subscription.items.data[0];
   const priceId = item?.price.id;
@@ -177,28 +185,32 @@ async function upsertSubscription(
     await existingGracePeriodEndsAt(userId),
     status,
   );
-  const { error } = await supabase.from("subscriptions").upsert(
-    {
-      user_id: userId,
-      stripe_customer_id: customerId,
-      stripe_subscription_id: subscription.id,
-      tier,
-      billing_interval: billingInterval,
-      pending_tier: pendingWaiting ? pendingRow.pending_tier : null,
-      pending_billing_interval: pendingWaiting ? pendingRow.pending_billing_interval : null,
-      status,
-      current_period_start: item?.current_period_start
-        ? new Date(item.current_period_start * 1000).toISOString()
-        : null,
-      current_period_end: item?.current_period_end
-        ? new Date(item.current_period_end * 1000).toISOString()
-        : null,
-      cancel_at_period_end: subscription.cancel_at_period_end,
-      grace_period_ends_at: gracePeriodEndsAt,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id" },
-  );
+  const values = {
+    user_id: userId,
+    stripe_customer_id: customerId,
+    stripe_subscription_id: subscription.id,
+    tier,
+    billing_interval: billingInterval,
+    pending_tier: pendingWaiting ? pendingRow.pending_tier : null,
+    pending_billing_interval: pendingWaiting ? pendingRow.pending_billing_interval : null,
+    status,
+    current_period_start: item?.current_period_start
+      ? new Date(item.current_period_start * 1000).toISOString()
+      : null,
+    current_period_end: item?.current_period_end
+      ? new Date(item.current_period_end * 1000).toISOString()
+      : null,
+    cancel_at_period_end: subscription.cancel_at_period_end,
+    grace_period_ends_at: gracePeriodEndsAt,
+    updated_at: new Date().toISOString(),
+  };
+  const { error } = expectedSubscriptionId
+    ? await supabase
+        .from("subscriptions")
+        .update(values)
+        .eq("user_id", userId)
+        .eq("stripe_subscription_id", expectedSubscriptionId)
+    : await supabase.from("subscriptions").upsert(values, { onConflict: "user_id" });
 
   if (error) throw new Error(error.message);
 }
@@ -279,13 +291,19 @@ async function processEvent(event: Stripe.Event) {
           ? subscription.customer
           : subscription.customer.id;
 
-      const userId = await findUserId(customerId);
-      if (!userId) throw new Error(`No user for customer ${customerId}`);
+      const owner = await findSubscriptionOwner(customerId);
+      if (!owner) throw new Error(`No user for customer ${customerId}`);
 
       if (subscription.status === "canceled") {
-        await downgradeToFree(userId, customerId, subscription.id);
+        await downgradeToFree(owner.userId, customerId, subscription.id);
       } else {
-        await upsertSubscription(userId, customerId, subscription);
+        if (owner.subscriptionId !== subscription.id) break;
+        await upsertSubscription(
+          owner.userId,
+          customerId,
+          subscription,
+          subscription.id,
+        );
       }
       break;
     }
@@ -297,9 +315,9 @@ async function processEvent(event: Stripe.Event) {
           ? subscription.customer
           : subscription.customer.id;
 
-      const userId = await findUserId(customerId);
-      if (!userId) throw new Error(`No user for customer ${customerId}`);
-      await downgradeToFree(userId, customerId, subscription.id);
+      const owner = await findSubscriptionOwner(customerId);
+      if (!owner) throw new Error(`No user for customer ${customerId}`);
+      await downgradeToFree(owner.userId, customerId, subscription.id);
       break;
     }
 
@@ -309,11 +327,22 @@ async function processEvent(event: Stripe.Event) {
         typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id;
       if (!customerId) break;
 
-      const userId = await findUserId(customerId);
-      if (!userId) break;
+      const parent = invoice.parent as
+        | { subscription_details?: { subscription?: string | { id?: string } } }
+        | null
+        | undefined;
+      const parentSub = parent?.subscription_details?.subscription;
+      const legacySub = (invoice as { subscription?: string | { id?: string } }).subscription;
+      const rawSub = parentSub ?? legacySub;
+      const subscriptionId =
+        typeof rawSub === "string" ? rawSub : rawSub?.id ?? null;
+      if (!subscriptionId) break;
+
+      const owner = await findSubscriptionOwner(customerId);
+      if (!owner || owner.subscriptionId !== subscriptionId) break;
 
       const gracePeriodEndsAt = nextGracePeriodEndsAt(
-        await existingGracePeriodEndsAt(userId),
+        await existingGracePeriodEndsAt(owner.userId),
         "past_due",
       );
 
@@ -324,7 +353,8 @@ async function processEvent(event: Stripe.Event) {
           grace_period_ends_at: gracePeriodEndsAt,
           updated_at: new Date().toISOString(),
         })
-        .eq("user_id", userId);
+        .eq("user_id", owner.userId)
+        .eq("stripe_subscription_id", subscriptionId);
 
       if (error) throw new Error(error.message);
       break;
@@ -336,9 +366,6 @@ async function processEvent(event: Stripe.Event) {
         typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id;
       if (!customerId) break;
 
-      const userId = await findUserId(customerId);
-      if (!userId) break;
-
       const parent = invoice.parent as
         | { subscription_details?: { subscription?: string | { id?: string } } }
         | null
@@ -349,10 +376,13 @@ async function processEvent(event: Stripe.Event) {
       const subscriptionId =
         typeof rawSub === "string" ? rawSub : rawSub?.id ?? null;
 
-      if (subscriptionId) {
-        const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-        await upsertSubscription(userId, customerId, subscription);
-      }
+      if (!subscriptionId) break;
+
+      const owner = await findSubscriptionOwner(customerId);
+      if (!owner || owner.subscriptionId !== subscriptionId) break;
+
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+      await upsertSubscription(owner.userId, customerId, subscription, subscriptionId);
       break;
     }
   }
