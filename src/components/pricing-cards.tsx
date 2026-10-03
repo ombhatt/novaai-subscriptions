@@ -32,6 +32,7 @@ interface PricingCardsProps {
   onSelectTier?: (tier: Tier) => void;
   loadingTier?: Tier | null;
   promoDiscount?: PromoDiscount | null;
+  hasPendingChange?: boolean;
 }
 
 const tierOrder: Tier[] = ["free", "plus", "pro", "enterprise"];
@@ -118,6 +119,7 @@ export function PricingCards({
   onSelectTier,
   loadingTier = null,
   promoDiscount = null,
+  hasPendingChange = false,
 }: PricingCardsProps) {
   const currentInterval = parseBillingInterval(billingInterval);
   const interval = parseBillingInterval(selectedInterval);
@@ -145,7 +147,9 @@ export function PricingCards({
           currentInterval === "month" &&
           interval === "year";
         const actionLabel = isCurrent
-          ? "Current plan"
+          ? hasPendingChange
+            ? "Keep current plan"
+            : "Current plan"
           : sameTierDifferentInterval
             ? interval === "year"
               ? "Switch to annual"
@@ -229,7 +233,7 @@ export function PricingCards({
                         ? "outline"
                         : "default"
                     }
-                    disabled={isCurrent || loadingTier === tier}
+                    disabled={(isCurrent && !hasPendingChange) || loadingTier === tier}
                     onClick={() => onSelectTier?.(tier)}
                   >
                     {loadingTier === tier ? "Redirecting…" : actionLabel}

@@ -25,6 +25,7 @@ async function schedulePriceAtPeriodEnd(
   stripe: Stripe,
   subscription: Stripe.Subscription,
   nextPriceId: string,
+  nextInterval: BillingInterval,
 ): Promise<boolean> {
   const item = subscription.items.data[0];
   const currentPriceId = item?.price.id;
@@ -40,19 +41,57 @@ async function schedulePriceAtPeriodEnd(
     : await stripe.subscriptionSchedules.create({
         from_subscription: subscription.id,
       });
-  const startDate = schedule.phases[0]?.start_date;
+  const startDate =
+    schedule.current_phase?.start_date ??
+    schedule.phases.find((phase) => phase.end_date === periodEnd)?.start_date ??
+    schedule.phases[0]?.start_date;
   if (!startDate) return false;
+
+  const currentPhase = schedule.phases.find(
+    (phase) => phase.start_date === startDate,
+  );
+  const discounts = currentPhase?.discounts
+    ?.map(
+      (
+        entry,
+      ): Stripe.SubscriptionScheduleUpdateParams.Phase.Discount | null => {
+        const discount =
+          typeof entry.discount === "string" ? entry.discount : entry.discount?.id;
+        if (discount) return { discount };
+
+        const promotionCode =
+          typeof entry.promotion_code === "string"
+            ? entry.promotion_code
+            : entry.promotion_code?.id;
+        if (promotionCode) return { promotion_code: promotionCode };
+
+        const coupon =
+          typeof entry.coupon === "string" ? entry.coupon : entry.coupon?.id;
+        return coupon ? { coupon } : null;
+      },
+    )
+    .filter(
+      (
+        entry,
+      ): entry is Stripe.SubscriptionScheduleUpdateParams.Phase.Discount =>
+        entry !== null,
+    );
+  const preservedPhaseSettings = discounts ? { discounts } : {};
+  const quantity = item.quantity ?? 1;
 
   await stripe.subscriptionSchedules.update(schedule.id, {
     end_behavior: "release",
     phases: [
       {
-        items: [{ price: currentPriceId, quantity: 1 }],
+        items: [{ price: currentPriceId, quantity }],
         start_date: startDate,
         end_date: periodEnd,
+        ...preservedPhaseSettings,
       },
       {
-        items: [{ price: nextPriceId, quantity: 1 }],
+        items: [{ price: nextPriceId, quantity }],
+        duration: { interval: nextInterval },
+        ...preservedPhaseSettings,
       },
     ],
   });
@@ -79,6 +118,7 @@ export async function changePaidSubscriptionTier(
     | "stripe_subscription_id"
     | "billing_interval"
     | "pending_tier"
+    | "pending_billing_interval"
     | "cancel_at_period_end"
   >,
   tier: CheckoutTier,
@@ -99,6 +139,40 @@ export async function changePaidSubscriptionTier(
 
   const currentInterval = parseBillingInterval(subscription.billing_interval);
   if (subscription.tier === tier && currentInterval === interval) {
+    if (subscription.pending_tier) {
+      const stripe = getStripe();
+      const current = (await stripe.subscriptions.retrieve(
+        subscription.stripe_subscription_id,
+      )) as Stripe.Subscription;
+      const scheduleId =
+        typeof current.schedule === "string"
+          ? current.schedule
+          : current.schedule?.id;
+      if (scheduleId) {
+        await stripe.subscriptionSchedules.release(scheduleId);
+      }
+
+      const admin = createAdminClient();
+      const { error } = await admin
+        .from("subscriptions")
+        .update({
+          pending_tier: null,
+          pending_billing_interval: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", subscription.user_id);
+
+      if (error) {
+        return {
+          ok: false,
+          status: 500,
+          error: "Unable to clear the scheduled plan change.",
+        };
+      }
+
+      return { ok: true };
+    }
+
     return {
       ok: false,
       status: 400,
@@ -164,6 +238,7 @@ export async function changePaidSubscriptionTier(
       stripe,
       current,
       priceId,
+      interval,
     );
     if (!scheduled) {
       return {
@@ -208,10 +283,35 @@ export async function changePaidSubscriptionTier(
     proration_behavior: isUpgrade ? "always_invoice" : "create_prorations",
     ...(isUpgrade ? { payment_behavior: "error_if_incomplete" } : {}),
   };
-  const updated = (await stripe.subscriptions.update(
-    subscription.stripe_subscription_id,
-    updateParams,
-  )) as Stripe.Subscription;
+  let updated: Stripe.Subscription;
+  try {
+    updated = (await stripe.subscriptions.update(
+      subscription.stripe_subscription_id,
+      updateParams,
+    )) as Stripe.Subscription;
+  } catch (error) {
+    const pendingTier = subscription.pending_tier;
+    const pendingInterval = subscription.pending_billing_interval;
+    if (
+      existingScheduleId &&
+      (pendingTier === "plus" || pendingTier === "pro") &&
+      pendingInterval
+    ) {
+      const pendingPriceId = stripePriceIdForTier(
+        pendingTier,
+        pendingInterval,
+      );
+      if (pendingPriceId) {
+        await schedulePriceAtPeriodEnd(
+          stripe,
+          { ...current, schedule: null },
+          pendingPriceId,
+          pendingInterval,
+        );
+      }
+    }
+    throw error;
+  }
 
   await upsertSubscriptionFromStripe(
     subscription.user_id,
