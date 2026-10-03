@@ -150,7 +150,7 @@ export async function upsertSubscriptionFromStripe(
   userId: string,
   customerId: string,
   subscription: Stripe.Subscription,
-  expectedSubscriptionId?: string,
+  expectedSubscriptionId?: string | null,
 ) {
   const supabase = createAdminClient();
   const price = subscription.items.data[0]?.price;
@@ -183,13 +183,20 @@ export async function upsertSubscriptionFromStripe(
     grace_period_ends_at: gracePeriodEndsAt,
     updated_at: new Date().toISOString(),
   };
-  const { error } = expectedSubscriptionId
-    ? await supabase
-        .from("subscriptions")
-        .update(values)
-        .eq("user_id", userId)
-        .eq("stripe_subscription_id", expectedSubscriptionId)
-    : await supabase.from("subscriptions").upsert(values, { onConflict: "user_id" });
+  const { error } =
+    expectedSubscriptionId === undefined
+      ? await supabase.from("subscriptions").upsert(values, { onConflict: "user_id" })
+      : expectedSubscriptionId === null
+        ? await supabase
+            .from("subscriptions")
+            .update(values)
+            .eq("user_id", userId)
+            .is("stripe_subscription_id", null)
+        : await supabase
+            .from("subscriptions")
+            .update(values)
+            .eq("user_id", userId)
+            .eq("stripe_subscription_id", expectedSubscriptionId);
 
   if (error) {
     throw new Error(`Failed to upsert subscription: ${error.message}`);
@@ -268,9 +275,21 @@ async function processStripeWebhookEvent(event: Stripe.Event): Promise<void> {
         throw new Error("Checkout session missing user_id, customer, or subscription.");
       }
 
+      const owner = await findSubscriptionOwnerByCustomerId(customerId);
+      if (!owner || owner.userId !== userId) {
+        throw new Error(`Checkout customer ${customerId} does not belong to ${userId}.`);
+      }
+      if (owner.subscriptionId && owner.subscriptionId !== subscriptionId) break;
+
       const stripe = await import("@/lib/stripe").then((m) => m.getStripe());
       const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-      await upsertSubscriptionFromStripe(userId, customerId, subscription);
+      if (subscription.status === "canceled") break;
+      await upsertSubscriptionFromStripe(
+        userId,
+        customerId,
+        subscription,
+        owner.subscriptionId,
+      );
       break;
     }
 
@@ -291,12 +310,12 @@ async function processStripeWebhookEvent(event: Stripe.Event): Promise<void> {
       if (subscription.status === "canceled") {
         await downgradeToFree(owner.userId, customerId, subscription.id);
       } else {
-        if (owner.subscriptionId !== subscription.id) break;
+        if (owner.subscriptionId && owner.subscriptionId !== subscription.id) break;
         await upsertSubscriptionFromStripe(
           owner.userId,
           customerId,
           subscription,
-          subscription.id,
+          owner.subscriptionId,
         );
       }
       break;
@@ -364,15 +383,18 @@ async function processStripeWebhookEvent(event: Stripe.Event): Promise<void> {
       if (!subscriptionId) break;
 
       const owner = await findSubscriptionOwnerByCustomerId(customerId);
-      if (!owner || owner.subscriptionId !== subscriptionId) break;
+      if (!owner || (owner.subscriptionId && owner.subscriptionId !== subscriptionId)) {
+        break;
+      }
 
       const stripe = await import("@/lib/stripe").then((m) => m.getStripe());
       const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+      if (subscription.status === "canceled") break;
       await upsertSubscriptionFromStripe(
         owner.userId,
         customerId,
         subscription,
-        subscriptionId,
+        owner.subscriptionId,
       );
       break;
     }
