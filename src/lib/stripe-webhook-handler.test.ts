@@ -117,7 +117,14 @@ describe("handleStripeWebhookEvent", () => {
     const supabase = createSupabaseMock({
       fromResults: {
         stripe_webhook_events: { data: null, error: null },
-        subscriptions: { data: null, error: null },
+        subscriptions: {
+          data: {
+            user_id: "user-1",
+            stripe_subscription_id: null,
+            grace_period_ends_at: null,
+          },
+          error: null,
+        },
       },
     });
     createAdminClientMock.mockReturnValue(supabase);
@@ -136,7 +143,50 @@ describe("handleStripeWebhookEvent", () => {
     );
 
     expect(retrieve).toHaveBeenCalledWith("sub_123");
-    expect(supabase.from).toHaveBeenCalledWith("subscriptions");
+    expect(supabase.builders.subscriptions.builder.lastUpdate).toEqual(
+      expect.objectContaining({
+        stripe_subscription_id: "sub_123",
+        tier: "plus",
+        status: "active",
+      }),
+    );
+    expect(supabase.builders.subscriptions.builder.is).toHaveBeenCalledWith(
+      "stripe_subscription_id",
+      null,
+    );
+    expect(supabase.builders.subscriptions.builder.lastUpsert).toBeUndefined();
+  });
+
+  it("ignores a delayed checkout completion for an older subscription", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        stripe_webhook_events: { data: null, error: null },
+        subscriptions: {
+          data: {
+            user_id: "user-1",
+            stripe_subscription_id: "sub_new",
+          },
+          error: null,
+        },
+      },
+    });
+    createAdminClientMock.mockReturnValue(supabase);
+    const retrieve = vi.fn();
+    getStripeMock.mockReturnValue({
+      subscriptions: { retrieve },
+    });
+
+    await handleStripeWebhookEvent(
+      makeEvent("checkout.session.completed", {
+        metadata: { user_id: "user-1" },
+        customer: "cus_123",
+        subscription: "sub_old",
+      }),
+    );
+
+    expect(retrieve).not.toHaveBeenCalled();
+    expect(supabase.builders.subscriptions.builder.lastUpdate).toBeUndefined();
+    expect(supabase.builders.subscriptions.builder.lastUpsert).toBeUndefined();
   });
 
   it("keeps unpaid subscriptions past_due so their grace period still applies", async () => {
@@ -440,6 +490,43 @@ describe("handleStripeWebhookEvent", () => {
     expect(supabase.builders.subscriptions.builder.lastUpsert).toBeUndefined();
   });
 
+  it("recovers an unset subscription from invoice.paid", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        stripe_webhook_events: { data: null, error: null },
+        subscriptions: {
+          data: {
+            user_id: "user-1",
+            stripe_subscription_id: null,
+            grace_period_ends_at: null,
+          },
+          error: null,
+        },
+      },
+    });
+    createAdminClientMock.mockReturnValue(supabase);
+    const retrieve = vi.fn().mockResolvedValue(makeStripeSubscription());
+    getStripeMock.mockReturnValue({
+      subscriptions: { retrieve },
+    });
+
+    await handleStripeWebhookEvent(
+      makeEvent("invoice.paid", {
+        customer: "cus_123",
+        parent: { subscription_details: { subscription: "sub_123" } },
+      }),
+    );
+
+    expect(retrieve).toHaveBeenCalledWith("sub_123");
+    expect(supabase.builders.subscriptions.builder.lastUpdate).toEqual(
+      expect.objectContaining({ stripe_subscription_id: "sub_123" }),
+    );
+    expect(supabase.builders.subscriptions.builder.is).toHaveBeenCalledWith(
+      "stripe_subscription_id",
+      null,
+    );
+  });
+
   it("ignores a delayed payment failure for an older subscription", async () => {
     const supabase = createSupabaseMock({
       fromResults: {
@@ -542,6 +629,40 @@ describe("handleStripeWebhookEvent", () => {
     expect(retrieve).toHaveBeenCalledWith("sub_old");
     expect(supabase.builders.subscriptions.builder.lastUpdate).toBeUndefined();
     expect(supabase.builders.subscriptions.builder.lastUpsert).toBeUndefined();
+  });
+
+  it("recovers an unset subscription from subscription.updated", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        stripe_webhook_events: { data: null, error: null },
+        subscriptions: {
+          data: {
+            user_id: "user-1",
+            stripe_subscription_id: null,
+            grace_period_ends_at: null,
+          },
+          error: null,
+        },
+      },
+    });
+    createAdminClientMock.mockReturnValue(supabase);
+    const retrieve = vi.fn().mockResolvedValue(makeStripeSubscription());
+    getStripeMock.mockReturnValue({
+      subscriptions: { retrieve },
+    });
+
+    await handleStripeWebhookEvent(
+      makeEvent("customer.subscription.updated", makeStripeSubscription()),
+    );
+
+    expect(retrieve).toHaveBeenCalledWith("sub_123");
+    expect(supabase.builders.subscriptions.builder.lastUpdate).toEqual(
+      expect.objectContaining({ stripe_subscription_id: "sub_123" }),
+    );
+    expect(supabase.builders.subscriptions.builder.is).toHaveBeenCalledWith(
+      "stripe_subscription_id",
+      null,
+    );
   });
 
   it("downgrades when subscription.updated status is canceled", async () => {

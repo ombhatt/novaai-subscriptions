@@ -166,7 +166,7 @@ async function upsertSubscription(
   userId: string,
   customerId: string,
   subscription: Stripe.Subscription,
-  expectedSubscriptionId?: string,
+  expectedSubscriptionId?: string | null,
 ) {
   const item = subscription.items.data[0];
   const priceId = item?.price.id;
@@ -205,13 +205,20 @@ async function upsertSubscription(
     grace_period_ends_at: gracePeriodEndsAt,
     updated_at: new Date().toISOString(),
   };
-  const { error } = expectedSubscriptionId
-    ? await supabase
-        .from("subscriptions")
-        .update(values)
-        .eq("user_id", userId)
-        .eq("stripe_subscription_id", expectedSubscriptionId)
-    : await supabase.from("subscriptions").upsert(values, { onConflict: "user_id" });
+  const { error } =
+    expectedSubscriptionId === undefined
+      ? await supabase.from("subscriptions").upsert(values, { onConflict: "user_id" })
+      : expectedSubscriptionId === null
+        ? await supabase
+            .from("subscriptions")
+            .update(values)
+            .eq("user_id", userId)
+            .is("stripe_subscription_id", null)
+        : await supabase
+            .from("subscriptions")
+            .update(values)
+            .eq("user_id", userId)
+            .eq("stripe_subscription_id", expectedSubscriptionId);
 
   if (error) throw new Error(error.message);
 }
@@ -279,8 +286,15 @@ async function processEvent(event: Stripe.Event) {
         throw new Error("Checkout session missing required fields.");
       }
 
+      const owner = await findSubscriptionOwner(customerId);
+      if (!owner || owner.userId !== userId) {
+        throw new Error(`Checkout customer ${customerId} does not belong to ${userId}.`);
+      }
+      if (owner.subscriptionId && owner.subscriptionId !== subscriptionId) break;
+
       const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-      await upsertSubscription(userId, customerId, subscription);
+      if (subscription.status === "canceled") break;
+      await upsertSubscription(userId, customerId, subscription, owner.subscriptionId);
       break;
     }
 
@@ -298,12 +312,12 @@ async function processEvent(event: Stripe.Event) {
       if (subscription.status === "canceled") {
         await downgradeToFree(owner.userId, customerId, subscription.id);
       } else {
-        if (owner.subscriptionId !== subscription.id) break;
+        if (owner.subscriptionId && owner.subscriptionId !== subscription.id) break;
         await upsertSubscription(
           owner.userId,
           customerId,
           subscription,
-          subscription.id,
+          owner.subscriptionId,
         );
       }
       break;
@@ -380,10 +394,18 @@ async function processEvent(event: Stripe.Event) {
       if (!subscriptionId) break;
 
       const owner = await findSubscriptionOwner(customerId);
-      if (!owner || owner.subscriptionId !== subscriptionId) break;
+      if (!owner || (owner.subscriptionId && owner.subscriptionId !== subscriptionId)) {
+        break;
+      }
 
       const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-      await upsertSubscription(owner.userId, customerId, subscription, subscriptionId);
+      if (subscription.status === "canceled") break;
+      await upsertSubscription(
+        owner.userId,
+        customerId,
+        subscription,
+        owner.subscriptionId,
+      );
       break;
     }
   }

@@ -46,6 +46,7 @@ export async function cancelExpiredDunningSubscriptions(
           await downgradeToFree(
             row.user_id as string,
             (row.stripe_customer_id as string | null) ?? undefined,
+            subscriptionId,
           );
           result.canceled += 1;
           continue;
@@ -60,13 +61,14 @@ export async function cancelExpiredDunningSubscriptions(
             : subscription.customer.id;
 
         if (subscription.status === "canceled") {
-          await downgradeToFree(row.user_id as string, customerId);
+          await downgradeToFree(row.user_id as string, customerId, subscriptionId);
           result.canceled += 1;
         } else {
           await upsertSubscriptionFromStripe(
             row.user_id as string,
             customerId,
             subscription,
+            subscriptionId,
           );
         }
         continue;
@@ -83,6 +85,7 @@ export async function cancelExpiredDunningSubscriptions(
       await downgradeToFree(
         row.user_id as string,
         (row.stripe_customer_id as string | null) ?? undefined,
+        subscriptionId,
       );
       result.canceled += 1;
     } catch (error) {
