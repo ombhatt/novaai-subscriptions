@@ -139,6 +139,45 @@ describe("handleStripeWebhookEvent", () => {
     expect(supabase.from).toHaveBeenCalledWith("subscriptions");
   });
 
+  it("keeps unpaid subscriptions past_due so their grace period still applies", async () => {
+    const gracePeriodEndsAt = "2026-09-11T12:00:00.000Z";
+    const supabase = createSupabaseMock({
+      fromResults: {
+        stripe_webhook_events: { data: null, error: null },
+        subscriptions: {
+          data: {
+            user_id: "user-1",
+            stripe_subscription_id: "sub_123",
+            grace_period_ends_at: gracePeriodEndsAt,
+          },
+          error: null,
+        },
+      },
+    });
+    createAdminClientMock.mockReturnValue(supabase);
+
+    const retrieve = vi
+      .fn()
+      .mockResolvedValue(makeStripeSubscription({ status: "unpaid" }));
+    getStripeMock.mockReturnValue({
+      subscriptions: { retrieve },
+    });
+
+    await handleStripeWebhookEvent(
+      makeEvent(
+        "customer.subscription.updated",
+        makeStripeSubscription({ status: "unpaid" }),
+      ),
+    );
+
+    expect(supabase.builders.subscriptions.builder.lastUpdate).toEqual(
+      expect.objectContaining({
+        status: "past_due",
+        grace_period_ends_at: gracePeriodEndsAt,
+      }),
+    );
+  });
+
   it("releases a failed event so Stripe can retry it", async () => {
     const supabase = createSupabaseMock({
       fromResults: {
