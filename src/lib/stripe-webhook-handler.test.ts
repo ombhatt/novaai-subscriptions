@@ -147,6 +147,7 @@ describe("handleStripeWebhookEvent", () => {
         subscriptions: {
           data: {
             user_id: "user-1",
+            stripe_subscription_id: "sub_123",
             grace_period_ends_at: gracePeriodEndsAt,
           },
           error: null,
@@ -169,7 +170,7 @@ describe("handleStripeWebhookEvent", () => {
       ),
     );
 
-    expect(supabase.builders.subscriptions.builder.lastUpsert).toEqual(
+    expect(supabase.builders.subscriptions.builder.lastUpdate).toEqual(
       expect.objectContaining({
         status: "past_due",
         grace_period_ends_at: gracePeriodEndsAt,
