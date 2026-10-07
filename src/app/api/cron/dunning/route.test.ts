@@ -65,7 +65,11 @@ describe("cancelExpiredDunningSubscriptions", () => {
     );
 
     expect(cancel).toHaveBeenCalledWith("sub_expired");
-    expect(downgradeToFreeMock).toHaveBeenCalledWith("user-1", "cus_1");
+    expect(downgradeToFreeMock).toHaveBeenCalledWith(
+      "user-1",
+      "cus_1",
+      "sub_expired",
+    );
     expect(result).toEqual({ canceled: 1, failed: 0, errors: [] });
   });
 
@@ -124,7 +128,11 @@ describe("cancelExpiredDunningSubscriptions", () => {
 
     const result = await cancelExpiredDunningSubscriptions();
 
-    expect(downgradeToFreeMock).toHaveBeenCalledWith("user-1", undefined);
+    expect(downgradeToFreeMock).toHaveBeenCalledWith(
+      "user-1",
+      undefined,
+      "sub_gone",
+    );
     expect(result).toEqual({ canceled: 1, failed: 0, errors: [] });
   });
 
@@ -227,6 +235,7 @@ describe("cancelExpiredDunningSubscriptions", () => {
       "user-1",
       "cus_1",
       subscription,
+      "sub_recovered",
     );
     expect(result).toEqual({ canceled: 0, failed: 0, errors: [] });
   });
