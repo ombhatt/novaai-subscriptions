@@ -101,6 +101,7 @@ src/
       subscription/   # Current plan + usage
       chat/           # Mock AI endpoint with entitlement checks
       cron/dunning    # Cancel past_due subs after the 7-day grace
+      cron/keepalive  # Daily database reads so the free project stays active
       webhooks/stripe # Local webhook fallback
     dashboard/        # Usage + billing UI
     pricing/          # Tier selection
@@ -123,6 +124,7 @@ supabase/
 | `/api/portal` | POST | Open Stripe billing portal |
 | `/api/chat` | POST | Mock AI request with entitlement enforcement |
 | `/api/cron/dunning` | GET/POST | Cancel Stripe subscriptions whose 7-day grace has elapsed (`Authorization: Bearer $CRON_SECRET`) |
+| `/api/cron/keepalive` | GET/POST | Read `subscriptions`, `profiles`, and `usage_counters` so the free Supabase project stays active (`Authorization: Bearer $CRON_SECRET`) |
 | `/api/sales-inquiry` | POST | Record an Enterprise sales lead (`{ email, company?, note?, promoCode? }`) |
 
 ## Tests
@@ -200,6 +202,16 @@ curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:43123/api/cron/dun
 ```
 
 On Vercel, [`vercel.json`](vercel.json) schedules `GET /api/cron/dunning` daily at 14:00 UTC. Set `CRON_SECRET` in the project env; Vercel sends it as `Authorization: Bearer $CRON_SECRET`.
+
+## Supabase keepalive
+
+Free Supabase projects pause when they receive too little user database activity over a week. A few real database reads each day is enough to keep one active. [`vercel.json`](vercel.json) schedules `GET /api/cron/keepalive` daily at 08:00 UTC. The handler reads one row from `subscriptions`, `profiles`, and `usage_counters`. It uses the same `CRON_SECRET` bearer check as the dunning cron, and the same `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` as the admin client.
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:43123/api/cron/keepalive
+```
+
+Vercel Cron only runs on production deployments. A Pro plan is the way to turn pausing off entirely.
 
 ## What ships in this MVP
 
