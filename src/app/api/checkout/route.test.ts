@@ -168,7 +168,11 @@ describe("POST /api/checkout", () => {
       url: "https://billing.stripe.com/session/test",
     });
     const createCheckout = vi.fn();
+    listSubscriptionsMock.mockResolvedValue({
+      data: [{ id: "sub_existing", status: "active" }],
+    });
     getStripeMock.mockReturnValue({
+      subscriptions: { list: listSubscriptionsMock },
       billingPortal: { sessions: { create: createPortal } },
       checkout: { sessions: { create: createCheckout } },
     });
@@ -189,6 +193,59 @@ describe("POST /api/checkout", () => {
       return_url: "http://localhost:43123/dashboard",
     });
     expect(createCheckout).not.toHaveBeenCalled();
+  });
+
+  it("clears a stale canceled subscription before starting a replacement checkout", async () => {
+    isStripeConfiguredMock.mockReturnValue(true);
+    createClientMock.mockResolvedValue(
+      createSupabaseMock({
+        fromResults: {
+          subscriptions: {
+            data: makeSubscription({
+              stripe_customer_id: "cus_existing",
+              stripe_subscription_id: "sub_canceled",
+              tier: "plus",
+            }),
+            error: null,
+          },
+        },
+      }),
+    );
+    const admin = createSupabaseMock();
+    createAdminClientMock.mockReturnValue(admin);
+    listSubscriptionsMock.mockResolvedValue({
+      data: [{ id: "sub_canceled", status: "canceled" }],
+    });
+
+    const createSession = vi.fn().mockResolvedValue({
+      url: "https://checkout.stripe.com/replacement",
+    });
+    getStripeMock.mockReturnValue({
+      subscriptions: { list: listSubscriptionsMock },
+      checkout: { sessions: { create: createSession } },
+    });
+
+    const response = await POST(
+      new Request("http://localhost/api/checkout", {
+        method: "POST",
+        body: JSON.stringify({ tier: "pro" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(admin.builders.subscriptions.builder.lastUpdate).toEqual({
+      stripe_subscription_id: null,
+    });
+    expect(admin.builders.subscriptions.builder.eq).toHaveBeenCalledWith(
+      "stripe_subscription_id",
+      "sub_canceled",
+    );
+    expect(createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customer: "cus_existing",
+        line_items: [{ price: "price_pro", quantity: 1 }],
+      }),
+    );
   });
 
   it("sends Stripe subscribers to the portal while the checkout webhook is delayed", async () => {

@@ -76,14 +76,6 @@ export async function POST(request: Request) {
   const stripe = getStripe();
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:43123";
 
-  if (subscription?.stripe_customer_id && subscription.stripe_subscription_id) {
-    const portalSession = await stripe.billingPortal.sessions.create({
-      customer: subscription.stripe_customer_id,
-      return_url: `${appUrl}/dashboard`,
-    });
-    return NextResponse.json({ url: portalSession.url });
-  }
-
   let customerId = subscription?.stripe_customer_id;
 
   if (customerId) {
@@ -102,6 +94,22 @@ export async function POST(request: Request) {
         return_url: `${appUrl}/dashboard`,
       });
       return NextResponse.json({ url: portalSession.url });
+    }
+
+    if (subscription?.stripe_subscription_id) {
+      const admin = createAdminClient();
+      const { error } = await admin
+        .from("subscriptions")
+        .update({ stripe_subscription_id: null })
+        .eq("user_id", user.id)
+        .eq("stripe_subscription_id", subscription.stripe_subscription_id);
+
+      if (error) {
+        return NextResponse.json(
+          { error: "Unable to refresh the billing account." },
+          { status: 500 },
+        );
+      }
     }
   }
 
