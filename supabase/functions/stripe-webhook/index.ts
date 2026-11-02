@@ -356,22 +356,13 @@ async function processEvent(event: Stripe.Event) {
       const owner = await findSubscriptionOwner(customerId);
       if (!owner || owner.subscriptionId !== subscriptionId) break;
 
-      const gracePeriodEndsAt = nextGracePeriodEndsAt(
-        await existingGracePeriodEndsAt(owner.userId),
-        "past_due",
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+      await upsertSubscription(
+        owner.userId,
+        customerId,
+        subscription,
+        subscriptionId,
       );
-
-      const { error } = await supabase
-        .from("subscriptions")
-        .update({
-          status: "past_due",
-          grace_period_ends_at: gracePeriodEndsAt,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("user_id", owner.userId)
-        .eq("stripe_subscription_id", subscriptionId);
-
-      if (error) throw new Error(error.message);
       break;
     }
 

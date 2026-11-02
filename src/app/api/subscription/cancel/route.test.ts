@@ -62,7 +62,11 @@ describe("subscription cancellation routes", () => {
       id: "sub_1",
       cancel_at_period_end: true,
     });
-    getStripeMock.mockReturnValue({ subscriptions: { update } });
+    const retrieve = vi.fn().mockResolvedValue({
+      id: "sub_1",
+      schedule: null,
+    });
+    getStripeMock.mockReturnValue({ subscriptions: { retrieve, update } });
 
     const response = await cancelSubscription();
     expect(response.status).toBe(200);

@@ -434,6 +434,69 @@ describe("changePaidSubscriptionTier", () => {
     );
   });
 
+  it("releases a scheduled change when saving it to the database fails", async () => {
+    const current = {
+      id: "sub_stripe",
+      schedule: null,
+      items: {
+        data: [
+          {
+            id: "si_plus",
+            price: { id: "price_plus_annual" },
+            current_period_end: 1_800_000_000,
+          },
+        ],
+      },
+    };
+    const retrieve = vi
+      .fn()
+      .mockResolvedValueOnce(current)
+      .mockResolvedValueOnce({ ...current, schedule: "sched_1" });
+    const createSchedule = vi.fn().mockResolvedValue({
+      id: "sched_1",
+      phases: [{ start_date: 1_700_000_000 }],
+    });
+    const updateSchedule = vi.fn().mockResolvedValue({ id: "sched_1" });
+    const release = vi.fn().mockResolvedValue({ id: "sched_1" });
+    getStripeMock.mockReturnValue({
+      subscriptions: { retrieve },
+      subscriptionSchedules: {
+        create: createSchedule,
+        update: updateSchedule,
+        release,
+      },
+    });
+    createAdminClientMock.mockReturnValue(
+      createSupabaseMock({
+        fromResults: {
+          subscriptions: {
+            data: null,
+            error: { message: "database unavailable" },
+          },
+        },
+      }),
+    );
+
+    const result = await changePaidSubscriptionTier(
+      makeSubscription({
+        tier: "plus",
+        billing_interval: "year",
+        stripe_customer_id: "cus_1",
+        stripe_subscription_id: "sub_stripe",
+      }) as Subscription,
+      "plus",
+      0,
+      "month",
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      status: 500,
+      error: "Unable to save the scheduled plan change.",
+    });
+    expect(release).toHaveBeenCalledWith("sched_1");
+  });
+
   it("preserves discounts and replaces only the active schedule phase", async () => {
     const retrieve = vi.fn().mockResolvedValue({
       id: "sub_stripe",
