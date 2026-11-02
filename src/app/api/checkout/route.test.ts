@@ -7,12 +7,14 @@ const {
   getStripeMock,
   isStripeConfiguredMock,
   listSubscriptionsMock,
+  listCheckoutSessionsMock,
 } = vi.hoisted(() => ({
   createClientMock: vi.fn(),
   createAdminClientMock: vi.fn(),
   getStripeMock: vi.fn(),
   isStripeConfiguredMock: vi.fn(),
   listSubscriptionsMock: vi.fn(),
+  listCheckoutSessionsMock: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -37,6 +39,7 @@ describe("POST /api/checkout", () => {
     vi.stubEnv("STRIPE_PRICE_PRO", "price_pro");
     vi.stubEnv("NEXT_PUBLIC_APP_URL", "http://localhost:43123");
     listSubscriptionsMock.mockResolvedValue({ data: [] });
+    listCheckoutSessionsMock.mockResolvedValue({ data: [] });
   });
 
   it("returns 503 when Stripe is not configured", async () => {
@@ -118,7 +121,9 @@ describe("POST /api/checkout", () => {
     getStripeMock.mockReturnValue({
       customers: { create: vi.fn() },
       subscriptions: { list: listSubscriptionsMock },
-      checkout: { sessions: { create: createSession } },
+      checkout: {
+        sessions: { create: createSession, list: listCheckoutSessionsMock },
+      },
     });
 
     const response = await POST(
@@ -138,6 +143,9 @@ describe("POST /api/checkout", () => {
         mode: "subscription",
         line_items: [{ price: "price_plus", quantity: 1 }],
       }),
+      {
+        idempotencyKey: "subscription-checkout:user-1:initial",
+      },
     );
     expect(createSession.mock.calls[0]?.[0]).not.toHaveProperty("discounts");
     expect(listSubscriptionsMock).toHaveBeenCalledWith({
@@ -145,6 +153,94 @@ describe("POST /api/checkout", () => {
       status: "all",
       limit: 100,
     });
+  });
+
+  it("reuses an open checkout session instead of creating a duplicate", async () => {
+    isStripeConfiguredMock.mockReturnValue(true);
+    createClientMock.mockResolvedValue(
+      createSupabaseMock({
+        fromResults: {
+          subscriptions: {
+            data: makeSubscription({ stripe_customer_id: "cus_existing" }),
+            error: null,
+          },
+        },
+      }),
+    );
+    listCheckoutSessionsMock.mockResolvedValueOnce({
+      data: [
+        {
+          id: "cs_open",
+          url: "https://checkout.stripe.com/existing",
+        },
+      ],
+    });
+    const createSession = vi.fn();
+    getStripeMock.mockReturnValue({
+      subscriptions: { list: listSubscriptionsMock },
+      checkout: {
+        sessions: { create: createSession, list: listCheckoutSessionsMock },
+      },
+    });
+
+    const response = await POST(
+      new Request("http://localhost/api/checkout", {
+        method: "POST",
+        body: JSON.stringify({ tier: "plus" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      url: "https://checkout.stripe.com/existing",
+    });
+    expect(createSession).not.toHaveBeenCalled();
+    expect(listCheckoutSessionsMock).toHaveBeenCalledWith({
+      customer: "cus_existing",
+      status: "open",
+      limit: 1,
+    });
+  });
+
+  it("keys a replacement checkout to the latest expired session", async () => {
+    isStripeConfiguredMock.mockReturnValue(true);
+    createClientMock.mockResolvedValue(
+      createSupabaseMock({
+        fromResults: {
+          subscriptions: {
+            data: makeSubscription({ stripe_customer_id: "cus_existing" }),
+            error: null,
+          },
+        },
+      }),
+    );
+    listCheckoutSessionsMock
+      .mockResolvedValueOnce({ data: [] })
+      .mockResolvedValueOnce({ data: [{ id: "cs_expired" }] });
+    const createSession = vi.fn().mockResolvedValue({
+      url: "https://checkout.stripe.com/replacement",
+    });
+    getStripeMock.mockReturnValue({
+      subscriptions: { list: listSubscriptionsMock },
+      checkout: {
+        sessions: { create: createSession, list: listCheckoutSessionsMock },
+      },
+    });
+
+    const response = await POST(
+      new Request("http://localhost/api/checkout", {
+        method: "POST",
+        body: JSON.stringify({ tier: "plus" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(createSession).toHaveBeenCalledWith(
+      expect.objectContaining({ customer: "cus_existing" }),
+      {
+        idempotencyKey: "subscription-checkout:user-1:cs_expired",
+      },
+    );
   });
 
   it("sends existing subscribers to the billing portal instead of creating another subscription", async () => {
@@ -170,7 +266,9 @@ describe("POST /api/checkout", () => {
     const createCheckout = vi.fn();
     getStripeMock.mockReturnValue({
       billingPortal: { sessions: { create: createPortal } },
-      checkout: { sessions: { create: createCheckout } },
+      checkout: {
+        sessions: { create: createCheckout, list: listCheckoutSessionsMock },
+      },
     });
 
     const response = await POST(
@@ -218,7 +316,9 @@ describe("POST /api/checkout", () => {
     getStripeMock.mockReturnValue({
       subscriptions: { list: listSubscriptionsMock },
       billingPortal: { sessions: { create: createPortal } },
-      checkout: { sessions: { create: createCheckout } },
+      checkout: {
+        sessions: { create: createCheckout, list: listCheckoutSessionsMock },
+      },
     });
 
     const response = await POST(
@@ -263,7 +363,9 @@ describe("POST /api/checkout", () => {
     getStripeMock.mockReturnValue({
       customers: { create: vi.fn() },
       subscriptions: { list: listSubscriptionsMock },
-      checkout: { sessions: { create: createSession } },
+      checkout: {
+        sessions: { create: createSession, list: listCheckoutSessionsMock },
+      },
     });
 
     const response = await POST(
@@ -277,6 +379,9 @@ describe("POST /api/checkout", () => {
     expect(createSession).toHaveBeenCalledWith(
       expect.objectContaining({
         line_items: [{ price: "price_plus_annual", quantity: 1 }],
+      }),
+      expect.objectContaining({
+        idempotencyKey: "subscription-checkout:user-1:initial",
       }),
     );
   });
@@ -302,7 +407,9 @@ describe("POST /api/checkout", () => {
       customers: { create: vi.fn() },
       subscriptions: { list: listSubscriptionsMock },
       promotionCodes: { list: listPromotionCodes },
-      checkout: { sessions: { create: createSession } },
+      checkout: {
+        sessions: { create: createSession, list: listCheckoutSessionsMock },
+      },
     });
 
     const response = await POST(
@@ -340,7 +447,9 @@ describe("POST /api/checkout", () => {
       customers: { create: vi.fn() },
       subscriptions: { list: listSubscriptionsMock },
       promotionCodes: { list: listPromotionCodes },
-      checkout: { sessions: { create: createSession } },
+      checkout: {
+        sessions: { create: createSession, list: listCheckoutSessionsMock },
+      },
     });
 
     const response = await POST(
@@ -360,6 +469,9 @@ describe("POST /api/checkout", () => {
     expect(createSession).toHaveBeenCalledWith(
       expect.objectContaining({
         discounts: [{ promotion_code: "promo_welcome20" }],
+      }),
+      expect.objectContaining({
+        idempotencyKey: "subscription-checkout:user-1:initial",
       }),
     );
     expect(createSession.mock.calls[0]?.[0]).not.toHaveProperty(
@@ -425,7 +537,10 @@ describe("POST /api/checkout", () => {
         list: vi.fn().mockResolvedValue({ data: [{ id: "promo_restricted" }] }),
       },
       checkout: {
-        sessions: { create: vi.fn().mockRejectedValue(stripeError) },
+        sessions: {
+          create: vi.fn().mockRejectedValue(stripeError),
+          list: listCheckoutSessionsMock,
+        },
       },
     });
 
@@ -460,7 +575,9 @@ describe("POST /api/checkout", () => {
     const createSession = vi.fn().mockResolvedValue({ url: "https://checkout.stripe.com/x" });
     getStripeMock.mockReturnValue({
       customers: { create: createCustomer },
-      checkout: { sessions: { create: createSession } },
+      checkout: {
+        sessions: { create: createSession, list: listCheckoutSessionsMock },
+      },
     });
 
     const response = await POST(
@@ -471,16 +588,22 @@ describe("POST /api/checkout", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(createCustomer).toHaveBeenCalledWith({
-      email: "test@example.com",
-      metadata: { user_id: "user-1" },
-    });
+    expect(createCustomer).toHaveBeenCalledWith(
+      {
+        email: "test@example.com",
+        metadata: { user_id: "user-1" },
+      },
+      { idempotencyKey: "subscription-customer:user-1" },
+    );
     expect(admin.builders.subscriptions.builder.lastUpdate).toEqual({
       stripe_customer_id: "cus_new",
     });
     expect(admin.builders.subscriptions.builder.eq).toHaveBeenCalledWith("user_id", "user-1");
     expect(createSession).toHaveBeenCalledWith(
       expect.objectContaining({ customer: "cus_new" }),
+      expect.objectContaining({
+        idempotencyKey: "subscription-checkout:user-1:initial",
+      }),
     );
   });
 
@@ -510,7 +633,9 @@ describe("POST /api/checkout", () => {
     const createSession = vi.fn();
     getStripeMock.mockReturnValue({
       customers: { create: vi.fn().mockResolvedValue({ id: "cus_new" }) },
-      checkout: { sessions: { create: createSession } },
+      checkout: {
+        sessions: { create: createSession, list: listCheckoutSessionsMock },
+      },
     });
 
     const response = await POST(
