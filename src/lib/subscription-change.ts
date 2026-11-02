@@ -259,6 +259,37 @@ export async function changePaidSubscriptionTier(
       .eq("user_id", subscription.user_id);
 
     if (error) {
+      const latest = (await stripe.subscriptions.retrieve(
+        subscription.stripe_subscription_id,
+      )) as Stripe.Subscription;
+      const scheduleId =
+        typeof latest.schedule === "string"
+          ? latest.schedule
+          : latest.schedule?.id;
+      if (scheduleId) {
+        await stripe.subscriptionSchedules.release(scheduleId);
+      }
+
+      const pendingTier = subscription.pending_tier;
+      const pendingInterval = subscription.pending_billing_interval;
+      if (
+        (pendingTier === "plus" || pendingTier === "pro") &&
+        pendingInterval
+      ) {
+        const pendingPriceId = stripePriceIdForTier(
+          pendingTier,
+          pendingInterval,
+        );
+        if (pendingPriceId) {
+          await schedulePriceAtPeriodEnd(
+            stripe,
+            { ...latest, schedule: null },
+            pendingPriceId,
+            pendingInterval,
+          );
+        }
+      }
+
       return {
         ok: false,
         status: 500,

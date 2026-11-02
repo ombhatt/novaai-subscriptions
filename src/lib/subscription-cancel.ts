@@ -35,7 +35,7 @@ export async function setCancelAtPeriodEnd(
   }
 
   const stripe = getStripe();
-  if (cancelAtPeriodEnd && subscription.pending_tier) {
+  if (cancelAtPeriodEnd) {
     const current = (await stripe.subscriptions.retrieve(
       subscription.stripe_subscription_id,
     )) as Stripe.Subscription;

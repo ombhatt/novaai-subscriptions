@@ -42,11 +42,15 @@ describe("setCancelAtPeriodEnd", () => {
   });
 
   it("schedules cancellation at period end in Stripe and syncs the row", async () => {
+    const retrieve = vi.fn().mockResolvedValue({
+      id: "sub_stripe",
+      schedule: null,
+    });
     const update = vi.fn().mockResolvedValue({
       id: "sub_stripe",
       cancel_at_period_end: true,
     });
-    getStripeMock.mockReturnValue({ subscriptions: { update } });
+    getStripeMock.mockReturnValue({ subscriptions: { retrieve, update } });
 
     const subscription = makeSubscription({
       tier: "plus",
@@ -62,6 +66,38 @@ describe("setCancelAtPeriodEnd", () => {
     });
     expect(upsertMock).toHaveBeenCalledWith("user-1", "cus_1", {
       id: "sub_stripe",
+      cancel_at_period_end: true,
+    });
+  });
+
+  it("releases an attached schedule even when pending state was not saved", async () => {
+    const retrieve = vi.fn().mockResolvedValue({
+      id: "sub_stripe",
+      schedule: "sched_orphaned",
+    });
+    const release = vi.fn().mockResolvedValue({ id: "sched_orphaned" });
+    const update = vi.fn().mockResolvedValue({
+      id: "sub_stripe",
+      cancel_at_period_end: true,
+    });
+    getStripeMock.mockReturnValue({
+      subscriptions: { retrieve, update },
+      subscriptionSchedules: { release },
+    });
+
+    const subscription = makeSubscription({
+      tier: "plus",
+      pending_tier: null,
+      stripe_customer_id: "cus_1",
+      stripe_subscription_id: "sub_stripe",
+    }) as Subscription;
+
+    await expect(setCancelAtPeriodEnd(subscription, true)).resolves.toEqual({
+      ok: true,
+    });
+
+    expect(release).toHaveBeenCalledWith("sched_orphaned");
+    expect(update).toHaveBeenCalledWith("sub_stripe", {
       cancel_at_period_end: true,
     });
   });
