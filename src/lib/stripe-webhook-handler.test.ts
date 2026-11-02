@@ -351,6 +351,10 @@ describe("handleStripeWebhookEvent", () => {
       },
     });
     createAdminClientMock.mockReturnValue(supabase);
+    const retrieve = vi
+      .fn()
+      .mockResolvedValue(makeStripeSubscription({ status: "past_due" }));
+    getStripeMock.mockReturnValue({ subscriptions: { retrieve } });
 
     await handleStripeWebhookEvent(
       makeEvent("invoice.payment_failed", {
@@ -359,6 +363,7 @@ describe("handleStripeWebhookEvent", () => {
       }),
     );
 
+    expect(retrieve).toHaveBeenCalledWith("sub_123");
     expect(supabase.builders.subscriptions.builder.lastUpdate).toEqual(
       expect.objectContaining({
         status: "past_due",
@@ -383,6 +388,10 @@ describe("handleStripeWebhookEvent", () => {
       },
     });
     createAdminClientMock.mockReturnValue(supabase);
+    const retrieve = vi
+      .fn()
+      .mockResolvedValue(makeStripeSubscription({ status: "past_due" }));
+    getStripeMock.mockReturnValue({ subscriptions: { retrieve } });
 
     await handleStripeWebhookEvent(
       makeEvent(
@@ -399,6 +408,41 @@ describe("handleStripeWebhookEvent", () => {
       expect.objectContaining({
         status: "past_due",
         grace_period_ends_at: existing,
+      }),
+    );
+  });
+
+  it("does not create dunning grace from a delayed failure after cancellation", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        stripe_webhook_events: { data: null, error: null },
+        subscriptions: {
+          data: {
+            user_id: "user-1",
+            stripe_subscription_id: "sub_123",
+            grace_period_ends_at: null,
+          },
+          error: null,
+        },
+      },
+    });
+    createAdminClientMock.mockReturnValue(supabase);
+    const retrieve = vi
+      .fn()
+      .mockResolvedValue(makeStripeSubscription({ status: "canceled" }));
+    getStripeMock.mockReturnValue({ subscriptions: { retrieve } });
+
+    await handleStripeWebhookEvent(
+      makeEvent("invoice.payment_failed", {
+        customer: "cus_123",
+        parent: { subscription_details: { subscription: "sub_123" } },
+      }),
+    );
+
+    expect(supabase.builders.subscriptions.builder.lastUpdate).toEqual(
+      expect.objectContaining({
+        status: "canceled",
+        grace_period_ends_at: null,
       }),
     );
   });

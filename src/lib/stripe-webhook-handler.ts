@@ -350,25 +350,14 @@ async function processStripeWebhookEvent(event: Stripe.Event): Promise<void> {
       const owner = await findSubscriptionOwnerByCustomerId(customerId);
       if (!owner || owner.subscriptionId !== subscriptionId) break;
 
-      const gracePeriodEndsAt = nextGracePeriodEndsAt(
-        await existingGracePeriodEndsAt(owner.userId),
-        "past_due",
+      const stripe = await import("@/lib/stripe").then((m) => m.getStripe());
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+      await upsertSubscriptionFromStripe(
+        owner.userId,
+        customerId,
+        subscription,
+        subscriptionId,
       );
-
-      const supabase = createAdminClient();
-      const { error } = await supabase
-        .from("subscriptions")
-        .update({
-          status: "past_due",
-          grace_period_ends_at: gracePeriodEndsAt,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("user_id", owner.userId)
-        .eq("stripe_subscription_id", subscriptionId);
-
-      if (error) {
-        throw new Error(`Failed to mark subscription past_due: ${error.message}`);
-      }
       break;
     }
 
