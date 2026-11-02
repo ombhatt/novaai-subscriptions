@@ -106,10 +106,13 @@ export async function POST(request: Request) {
   }
 
   if (!customerId) {
-    const customer = await stripe.customers.create({
-      email: user.email,
-      metadata: { user_id: user.id },
-    });
+    const customer = await stripe.customers.create(
+      {
+        email: user.email,
+        metadata: { user_id: user.id },
+      },
+      { idempotencyKey: `subscription-customer:${user.id}` },
+    );
     customerId = customer.id;
 
     const admin = createAdminClient();
@@ -142,6 +145,22 @@ export async function POST(request: Request) {
     discounts = [{ promotion_code: promotionCode.id }];
   }
 
+  const openSessions = await stripe.checkout.sessions.list({
+    customer: customerId,
+    status: "open",
+    limit: 1,
+  });
+  const openSession = openSessions.data[0];
+  if (openSession?.url) {
+    return NextResponse.json({ url: openSession.url });
+  }
+
+  const recentSessions = await stripe.checkout.sessions.list({
+    customer: customerId,
+    limit: 1,
+  });
+  const previousSessionId = recentSessions.data[0]?.id ?? "initial";
+
   const sessionParams: Stripe.Checkout.SessionCreateParams = {
     customer: customerId,
     mode: "subscription",
@@ -159,7 +178,9 @@ export async function POST(request: Request) {
   }
 
   try {
-    const session = await stripe.checkout.sessions.create(sessionParams);
+    const session = await stripe.checkout.sessions.create(sessionParams, {
+      idempotencyKey: `subscription-checkout:${user.id}:${previousSessionId}`,
+    });
     return NextResponse.json({ url: session.url });
   } catch (error) {
     if (isStripeInvalidRequestError(error)) {
