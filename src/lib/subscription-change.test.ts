@@ -251,24 +251,7 @@ describe("changePaidSubscriptionTier", () => {
     });
   });
 
-  it("releases a scheduled change before an immediate upgrade", async () => {
-    const retrieve = vi.fn().mockResolvedValue({
-      id: "sub_stripe",
-      schedule: "sched_old",
-      items: { data: [{ id: "si_plus", price: { id: "price_plus" } }] },
-    });
-    const update = vi.fn().mockResolvedValue({
-      id: "sub_stripe",
-      items: { data: [{ id: "si_plus", price: { id: "price_pro" } }] },
-    });
-    const release = vi.fn().mockResolvedValue({ id: "sched_old" });
-    getStripeMock.mockReturnValue({
-      subscriptions: { retrieve, update },
-      subscriptionSchedules: { release },
-    });
-    const admin = createSupabaseMock();
-    createAdminClientMock.mockReturnValue(admin);
-
+  it("preserves a scheduled change when an immediate change is requested", async () => {
     const result = await changePaidSubscriptionTier(
       makeSubscription({
         tier: "plus",
@@ -283,90 +266,12 @@ describe("changePaidSubscriptionTier", () => {
       "month",
     );
 
-    expect(result).toEqual({ ok: true });
-    expect(release).toHaveBeenCalledWith("sched_old");
-    expect(admin.builders.subscriptions.builder.lastUpdate).toEqual(
-      expect.objectContaining({
-        pending_tier: null,
-        pending_billing_interval: null,
-      }),
-    );
-  });
-
-  it("restores a scheduled change when an immediate upgrade payment fails", async () => {
-    const retrieve = vi.fn().mockResolvedValue({
-      id: "sub_stripe",
-      schedule: "sched_old",
-      items: {
-        data: [
-          {
-            id: "si_plus",
-            price: { id: "price_plus" },
-            current_period_end: 1_800_000_000,
-          },
-        ],
-      },
+    expect(result).toEqual({
+      ok: false,
+      status: 409,
+      error: "Keep your current plan before making an immediate plan change.",
     });
-    const update = vi.fn().mockRejectedValue(new Error("card declined"));
-    const release = vi.fn().mockResolvedValue({ id: "sched_old" });
-    const createSchedule = vi.fn().mockResolvedValue({
-      id: "sched_restored",
-      current_phase: {
-        start_date: 1_700_000_000,
-        end_date: 1_800_000_000,
-      },
-      phases: [
-        {
-          start_date: 1_700_000_000,
-          end_date: 1_800_000_000,
-          discounts: [],
-        },
-      ],
-    });
-    const updateSchedule = vi.fn().mockResolvedValue({ id: "sched_restored" });
-    getStripeMock.mockReturnValue({
-      subscriptions: { retrieve, update },
-      subscriptionSchedules: {
-        release,
-        create: createSchedule,
-        update: updateSchedule,
-      },
-    });
-
-    await expect(
-      changePaidSubscriptionTier(
-        makeSubscription({
-          tier: "plus",
-          billing_interval: "month",
-          pending_tier: "plus",
-          pending_billing_interval: "year",
-          stripe_customer_id: "cus_1",
-          stripe_subscription_id: "sub_stripe",
-        }) as Subscription,
-        "pro",
-        0,
-        "month",
-      ),
-    ).rejects.toThrow("card declined");
-
-    expect(release).toHaveBeenCalledWith("sched_old");
-    expect(createSchedule).toHaveBeenCalledWith({ from_subscription: "sub_stripe" });
-    expect(updateSchedule).toHaveBeenCalledWith("sched_restored", {
-      end_behavior: "release",
-      phases: [
-        {
-          items: [{ price: "price_plus", quantity: 1 }],
-          start_date: 1_700_000_000,
-          end_date: 1_800_000_000,
-          discounts: [],
-        },
-        {
-          items: [{ price: "price_plus_annual", quantity: 1 }],
-          duration: { interval: "year" },
-          discounts: [],
-        },
-      ],
-    });
+    expect(getStripeMock).not.toHaveBeenCalled();
   });
 
   it("schedules a move off annual billing until the current period ends", async () => {

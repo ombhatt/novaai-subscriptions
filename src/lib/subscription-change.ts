@@ -219,6 +219,17 @@ export async function changePaidSubscriptionTier(
     };
   }
 
+  if (
+    subscription.pending_tier &&
+    !changeWaitsUntilPeriodEnd(currentInterval, subscription.tier, interval, tier)
+  ) {
+    return {
+      ok: false,
+      status: 409,
+      error: "Keep your current plan before making an immediate plan change.",
+    };
+  }
+
   const stripe = getStripe();
   const current = (await stripe.subscriptions.retrieve(
     subscription.stripe_subscription_id,
@@ -283,35 +294,10 @@ export async function changePaidSubscriptionTier(
     proration_behavior: isUpgrade ? "always_invoice" : "create_prorations",
     ...(isUpgrade ? { payment_behavior: "error_if_incomplete" } : {}),
   };
-  let updated: Stripe.Subscription;
-  try {
-    updated = (await stripe.subscriptions.update(
-      subscription.stripe_subscription_id,
-      updateParams,
-    )) as Stripe.Subscription;
-  } catch (error) {
-    const pendingTier = subscription.pending_tier;
-    const pendingInterval = subscription.pending_billing_interval;
-    if (
-      existingScheduleId &&
-      (pendingTier === "plus" || pendingTier === "pro") &&
-      pendingInterval
-    ) {
-      const pendingPriceId = stripePriceIdForTier(
-        pendingTier,
-        pendingInterval,
-      );
-      if (pendingPriceId) {
-        await schedulePriceAtPeriodEnd(
-          stripe,
-          { ...current, schedule: null },
-          pendingPriceId,
-          pendingInterval,
-        );
-      }
-    }
-    throw error;
-  }
+  const updated = (await stripe.subscriptions.update(
+    subscription.stripe_subscription_id,
+    updateParams,
+  )) as Stripe.Subscription;
 
   await upsertSubscriptionFromStripe(
     subscription.user_id,
