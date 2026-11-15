@@ -56,14 +56,27 @@ describe("cancelExpiredDunningSubscriptions", () => {
       id: "sub_expired",
       status: "past_due",
       customer: "cus_1",
+      latest_invoice: "in_expired",
     });
     const cancel = vi.fn().mockResolvedValue({ id: "sub_expired" });
-    getStripeMock.mockReturnValue({ subscriptions: { retrieve, cancel } });
+    const retrieveInvoice = vi.fn().mockResolvedValue({
+      id: "in_expired",
+      status: "open",
+    });
+    const voidInvoice = vi.fn().mockResolvedValue({
+      id: "in_expired",
+      status: "void",
+    });
+    getStripeMock.mockReturnValue({
+      subscriptions: { retrieve, cancel },
+      invoices: { retrieve: retrieveInvoice, voidInvoice },
+    });
 
     const result = await cancelExpiredDunningSubscriptions(
       new Date("2026-09-12T00:00:00.000Z"),
     );
 
+    expect(voidInvoice).toHaveBeenCalledWith("in_expired");
     expect(cancel).toHaveBeenCalledWith("sub_expired");
     expect(downgradeToFreeMock).toHaveBeenCalledWith(
       "user-1",
@@ -158,8 +171,13 @@ describe("cancelExpiredDunningSubscriptions", () => {
           id: "sub_fail",
           status: "past_due",
           customer: "cus_1",
+          latest_invoice: "in_fail",
         }),
         cancel: vi.fn().mockRejectedValue(new Error("card network down")),
+      },
+      invoices: {
+        retrieve: vi.fn().mockResolvedValue({ id: "in_fail", status: "open" }),
+        voidInvoice: vi.fn().mockResolvedValue({ id: "in_fail", status: "void" }),
       },
     });
 
@@ -191,14 +209,67 @@ describe("cancelExpiredDunningSubscriptions", () => {
           id: "sub_boom",
           status: "past_due",
           customer: "cus_1",
+          latest_invoice: "in_boom",
         }),
         cancel: vi.fn().mockRejectedValue("hard fail"),
+      },
+      invoices: {
+        retrieve: vi.fn().mockResolvedValue({ id: "in_boom", status: "open" }),
+        voidInvoice: vi.fn().mockResolvedValue({ id: "in_boom", status: "void" }),
       },
     });
 
     const result = await cancelExpiredDunningSubscriptions();
 
     expect(result.errors[0]).toMatch(/sub_boom: Unknown dunning error/);
+  });
+
+  it("does not cancel when the outstanding invoice is paid concurrently", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        subscriptions: {
+          data: [
+            {
+              user_id: "user-1",
+              stripe_customer_id: "cus_1",
+              stripe_subscription_id: "sub_recovering",
+            },
+          ],
+          error: null,
+        },
+      },
+    });
+    createAdminClientMock.mockReturnValue(supabase);
+    const cancel = vi.fn();
+    const voidInvoice = vi
+      .fn()
+      .mockRejectedValue(new Error("Invoice is already paid"));
+    getStripeMock.mockReturnValue({
+      subscriptions: {
+        retrieve: vi.fn().mockResolvedValue({
+          id: "sub_recovering",
+          status: "past_due",
+          customer: "cus_1",
+          latest_invoice: "in_recovering",
+        }),
+        cancel,
+      },
+      invoices: {
+        retrieve: vi.fn().mockResolvedValue({
+          id: "in_recovering",
+          status: "open",
+        }),
+        voidInvoice,
+      },
+    });
+
+    const result = await cancelExpiredDunningSubscriptions();
+
+    expect(voidInvoice).toHaveBeenCalledWith("in_recovering");
+    expect(cancel).not.toHaveBeenCalled();
+    expect(downgradeToFreeMock).not.toHaveBeenCalled();
+    expect(result.failed).toBe(1);
+    expect(result.errors[0]).toMatch(/Invoice is already paid/);
   });
 
   it("reconciles a recovered Stripe subscription instead of canceling it", async () => {
