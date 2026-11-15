@@ -17,6 +17,33 @@ function isAlreadyCanceledError(error: unknown): boolean {
   return /no such subscription|already canceled|resource_missing/i.test(message);
 }
 
+function latestInvoiceId(subscription: Stripe.Subscription): string | null {
+  if (!subscription.latest_invoice) return null;
+  return typeof subscription.latest_invoice === "string"
+    ? subscription.latest_invoice
+    : subscription.latest_invoice.id;
+}
+
+async function closeOutstandingInvoice(
+  stripe: ReturnType<typeof getStripe>,
+  subscription: Stripe.Subscription,
+): Promise<void> {
+  const invoiceId = latestInvoiceId(subscription);
+  if (!invoiceId) {
+    throw new Error("Past-due subscription has no latest invoice");
+  }
+
+  const invoice = await stripe.invoices.retrieve(invoiceId);
+  if (invoice.status === "open" || invoice.status === "uncollectible") {
+    await stripe.invoices.voidInvoice(invoiceId);
+    return;
+  }
+
+  if (invoice.status !== "void") {
+    throw new Error(`Latest invoice is ${invoice.status ?? "in an unknown state"}`);
+  }
+}
+
 export async function cancelExpiredDunningSubscriptions(
   now = new Date(),
 ): Promise<DunningSweepResult> {
@@ -73,6 +100,8 @@ export async function cancelExpiredDunningSubscriptions(
         }
         continue;
       }
+
+      await closeOutstandingInvoice(stripe, subscription);
 
       try {
         await stripe.subscriptions.cancel(subscriptionId);
