@@ -182,10 +182,11 @@ async function upsertSubscription(
     (pendingRow.pending_tier !== tier ||
       pendingRow.pending_billing_interval !== billingInterval);
   const status = mapStripeStatus(subscription.status);
-  const gracePeriodEndsAt = nextGracePeriodEndsAt(
-    await existingGracePeriodEndsAt(userId),
-    status,
-  );
+  const existingGrace = await existingGracePeriodEndsAt(userId);
+  const gracePeriodEndsAt =
+    subscription.status === "unpaid"
+      ? existingGrace
+      : nextGracePeriodEndsAt(existingGrace, status);
   const values = {
     user_id: userId,
     stripe_customer_id: customerId,

@@ -160,10 +160,11 @@ export async function upsertSubscriptionFromStripe(
   const pending = await pendingPlanColumns(userId, tier, billingInterval);
   const { currentPeriodStart, currentPeriodEnd } = getSubscriptionPeriod(subscription);
   const status = mapStripeStatus(subscription.status);
-  const gracePeriodEndsAt = nextGracePeriodEndsAt(
-    await existingGracePeriodEndsAt(userId),
-    status,
-  );
+  const existingGrace = await existingGracePeriodEndsAt(userId);
+  const gracePeriodEndsAt =
+    subscription.status === "unpaid"
+      ? existingGrace
+      : nextGracePeriodEndsAt(existingGrace, status);
 
   const values = {
     user_id: userId,
