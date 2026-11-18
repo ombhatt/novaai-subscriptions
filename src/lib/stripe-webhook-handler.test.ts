@@ -228,6 +228,44 @@ describe("handleStripeWebhookEvent", () => {
     );
   });
 
+  it("does not start a new grace period after Stripe marks a subscription unpaid", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        stripe_webhook_events: { data: null, error: null },
+        subscriptions: {
+          data: {
+            user_id: "user-1",
+            stripe_subscription_id: "sub_123",
+            grace_period_ends_at: null,
+          },
+          error: null,
+        },
+      },
+    });
+    createAdminClientMock.mockReturnValue(supabase);
+
+    const retrieve = vi
+      .fn()
+      .mockResolvedValue(makeStripeSubscription({ status: "unpaid" }));
+    getStripeMock.mockReturnValue({
+      subscriptions: { retrieve },
+    });
+
+    await handleStripeWebhookEvent(
+      makeEvent(
+        "customer.subscription.updated",
+        makeStripeSubscription({ status: "unpaid" }),
+      ),
+    );
+
+    expect(supabase.builders.subscriptions.builder.lastUpdate).toEqual(
+      expect.objectContaining({
+        status: "past_due",
+        grace_period_ends_at: null,
+      }),
+    );
+  });
+
   it("releases a failed event so Stripe can retry it", async () => {
     const supabase = createSupabaseMock({
       fromResults: {
