@@ -26,15 +26,17 @@ const supabase = createClient(supabaseUrl, serviceRoleKey, {
 type Tier = "free" | "plus" | "pro";
 type SubscriptionStatus = "active" | "past_due" | "canceled" | "trialing" | "incomplete";
 
-function tierFromPriceId(priceId: string | undefined): Tier {
-  if (!priceId) return "free";
+function tierFromPriceId(priceId: string | undefined): Exclude<Tier, "free"> {
+  if (!priceId) {
+    throw new Error("Stripe subscription is missing a price ID.");
+  }
   if ((pricePro && priceId === pricePro) || (priceProAnnual && priceId === priceProAnnual)) {
     return "pro";
   }
   if ((pricePlus && priceId === pricePlus) || (pricePlusAnnual && priceId === pricePlusAnnual)) {
     return "plus";
   }
-  return "free";
+  throw new Error(`Stripe price ${priceId} is not mapped to a subscription tier.`);
 }
 
 function billingIntervalFromPrice(

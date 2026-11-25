@@ -89,8 +89,12 @@ export function parseBillingInterval(
   return value === "year" ? "year" : "month";
 }
 
-export function tierFromStripePriceId(priceId: string | null | undefined): Tier {
-  if (!priceId) return "free";
+export function tierFromStripePriceId(
+  priceId: string | null | undefined,
+): CheckoutTier {
+  if (!priceId) {
+    throw new Error("Stripe subscription is missing a price ID.");
+  }
 
   const plusPrices = [process.env.STRIPE_PRICE_PLUS, process.env.STRIPE_PRICE_PLUS_ANNUAL];
   const proPrices = [process.env.STRIPE_PRICE_PRO, process.env.STRIPE_PRICE_PRO_ANNUAL];
@@ -98,7 +102,7 @@ export function tierFromStripePriceId(priceId: string | null | undefined): Tier 
   if (proPrices.includes(priceId)) return "pro";
   if (plusPrices.includes(priceId)) return "plus";
 
-  return "free";
+  throw new Error(`Stripe price ${priceId} is not mapped to a subscription tier.`);
 }
 
 export function billingIntervalFromStripePrice(
