@@ -87,10 +87,10 @@ describe("tierFromStripePriceId", () => {
     vi.unstubAllEnvs();
   });
 
-  it("returns free for null/undefined/empty", () => {
-    expect(tierFromStripePriceId(null)).toBe("free");
-    expect(tierFromStripePriceId(undefined)).toBe("free");
-    expect(tierFromStripePriceId("")).toBe("free");
+  it("rejects subscriptions without a price ID", () => {
+    expect(() => tierFromStripePriceId(null)).toThrow(/missing a price ID/);
+    expect(() => tierFromStripePriceId(undefined)).toThrow(/missing a price ID/);
+    expect(() => tierFromStripePriceId("")).toThrow(/missing a price ID/);
   });
 
   it("maps plus and pro price IDs", () => {
@@ -112,12 +112,16 @@ describe("tierFromStripePriceId", () => {
     expect(stripePriceIdForTier("pro", "year")).toBe("price_pro_year");
   });
 
-  it("returns free for unknown price IDs", () => {
-    expect(tierFromStripePriceId("price_unknown")).toBe("free");
+  it("rejects unknown price IDs instead of downgrading paid access", () => {
+    expect(() => tierFromStripePriceId("price_unknown")).toThrow(
+      /price_unknown is not mapped/,
+    );
   });
 
-  it("returns free when env price IDs are unset", () => {
+  it("rejects price IDs when their environment mapping is unset", () => {
     vi.unstubAllEnvs();
-    expect(tierFromStripePriceId("price_plus_test")).toBe("free");
+    expect(() => tierFromStripePriceId("price_plus_test")).toThrow(
+      /price_plus_test is not mapped/,
+    );
   });
 });

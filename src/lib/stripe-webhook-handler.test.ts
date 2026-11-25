@@ -157,6 +157,57 @@ describe("handleStripeWebhookEvent", () => {
     expect(supabase.builders.subscriptions.builder.lastUpsert).toBeUndefined();
   });
 
+  it("retries an unmapped paid price without overwriting entitlements", async () => {
+    const supabase = createSupabaseMock({
+      fromResults: {
+        stripe_webhook_events: { data: null, error: null },
+        subscriptions: {
+          data: {
+            user_id: "user-1",
+            stripe_subscription_id: null,
+          },
+          error: null,
+        },
+      },
+    });
+    createAdminClientMock.mockReturnValue(supabase);
+
+    const retrieve = vi.fn().mockResolvedValue(
+      makeStripeSubscription({
+        items: {
+          data: [
+            {
+              id: "si_1",
+              price: { id: "price_unmapped" },
+              current_period_start: 1_700_000_000,
+              current_period_end: 1_702_592_000,
+            },
+          ],
+        },
+      }),
+    );
+    getStripeMock.mockReturnValue({
+      subscriptions: { retrieve },
+    });
+
+    await expect(
+      handleStripeWebhookEvent(
+        makeEvent("checkout.session.completed", {
+          metadata: { user_id: "user-1" },
+          customer: "cus_123",
+          subscription: "sub_123",
+        }),
+      ),
+    ).rejects.toThrow(/price_unmapped is not mapped/);
+
+    expect(supabase.from).toHaveBeenCalledWith("subscriptions");
+    expect(supabase.builders.subscriptions.builder.lastUpdate).toBeUndefined();
+    expect(supabase.builders.subscriptions.builder.lastUpsert).toBeUndefined();
+    expect(
+      supabase.builders.stripe_webhook_events.builder.delete,
+    ).toHaveBeenCalledWith();
+  });
+
   it("ignores a delayed checkout completion for an older subscription", async () => {
     const supabase = createSupabaseMock({
       fromResults: {
